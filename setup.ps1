@@ -109,10 +109,69 @@ function Install-Apps {
     }
 }
 
+function Install-SelectedApps {
+    $apps = @(
+        @{ name = "Brave Browser"; id = "Brave.Brave" },
+        @{ name = "Docker Desktop"; id = "Docker.DockerDesktop" },
+        @{ name = "Python"; id = "Python.Python.3" },
+        @{ name = "Notepad++"; id = "Notepad++.Notepad++" },
+        @{ name = "Total Commander"; id = "Ghisler.TotalCommander" },
+        @{ name = "Visual Studio Code"; id = "Microsoft.VisualStudioCode" },
+        @{ name = "MEGAsync"; id = "MEGAsync" }
+    )
+
+    Write-Host "`n📋 Выберите программы для установки:" -ForegroundColor Cyan
+    for ($i = 0; $i -lt $apps.Length; $i++) {
+        Write-Host "$($i + 1). $($apps[$i].name)"
+    }
+    Write-Host "8. Visual Studio Code (альтернативный метод)"
+
+    $input = Read-Host "`nВведите номера программ через запятую (например: 1,3,5)"
+    $selected = $input -split ',' | ForEach-Object { $_.Trim() }
+
+    foreach ($num in $selected) {
+        if ($num -eq '8') {
+            Write-Status "`n⬇️ Устанавливаем Visual Studio Code (альтернативный метод)..." Cyan
+            try {
+                if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
+                    Invoke-WebRequest -Uri https://aka.ms/win32-x64-user-stable -OutFile "$env:TEMP\vscode-install.exe"
+                    Start-Process -FilePath "$env:TEMP\vscode-install.exe" -Args "/silent /mergetasks=!runcode" -Wait
+                    Remove-Item "$env:TEMP\vscode-install.exe" -Force -ErrorAction SilentlyContinue
+                    Write-Status "✅ Visual Studio Code установлен (альтернативный метод)." Green
+                } else {
+                    Write-Status "✅ Visual Studio Code уже установлен." Green
+                }
+            } catch {
+                Write-Status "❌ Ошибка установки Visual Studio Code (альтернативный метод): $_" Red
+            }
+        } elseif ($num -ge 1 -and $num -le 7) {
+            $index = [int]$num - 1
+            $app = $apps[$index]
+            Write-Status "`n⬇️ Устанавливаем $($app.name)..." Cyan
+            try {
+                if ($app.id -eq "MEGAsync") {
+                    $megaUrl = "https://mega.nz/MEGAsyncSetup64.exe"
+                    $megaInstaller = "$env:TEMP\MEGAsyncSetup64.exe"
+                    Invoke-WebRequest -Uri $megaUrl -OutFile $megaInstaller
+                    Start-Process -FilePath $megaInstaller -Args "/S" -Wait
+                    Remove-Item $megaInstaller -Force -ErrorAction SilentlyContinue
+                    Write-Status "✅ MEGAsync установлен." Green
+                } else {
+                    winget install --id $($app.id) --silent --accept-source-agreements --accept-package-agreements
+                    Write-Status "✅ $($app.name) установлен." Green
+                }
+            } catch {
+                Write-Status "❌ Ошибка установки $($app.name): $_" Red
+            }
+        } else {
+            Write-Status "❌ Неверный номер программы: $num" Red
+        }
+    }
+}
+
 function Show-HiddenFiles {
     Write-Status "`n🛠️ Включаем отображение скрытых файлов..." Cyan
-    Set-ItemProperty -Path "HKCU:\Software\Microso
-System: ft\Windows\CurrentVersion\Explorer\Advanced" -Name Hidden -Value 1
+    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name Hidden -Value 1
     Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name ShowSuperHidden -Value 1
     Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
     Start-Process explorer.exe
@@ -198,7 +257,7 @@ function Show-Menu {
             Show-MultiTaskMenu
         }
         default {
-            Write-Status "Неверный выбор. Завершение." Red
+            Write-Status "❌ Неверный выбор. Завершение." Red
         }
     }
 }
@@ -215,16 +274,43 @@ function Show-SingleTaskMenu {
     Write-Host "8. Установить WSL с Ubuntu"
 
     $task = Read-Host "Введите номер (1-8)"
+    Write-Status "`n🔍 Выбрана задача: $task" Yellow # Debugging output
     switch ($task) {
-        '1' { Install-Chocolatey }
-        '2' { Ensure-Winget }
-        '3' { Show-HiddenFiles }
-        '4' { Install-Apps }
-        '5' { Set-RussianLanguage }
-        '6' { Disable-UAC }
-        '7' { Run-Debloat }
-        '8' { Install-WSL }
-        default { Write-Status "Неверный выбор" Red }
+        '1' { 
+            Write-Status "🚀 Выполняется установка Chocolatey..." Yellow
+            Install-Chocolatey 
+        }
+        '2' { 
+            Write-Status "🚀 Выполняется установка Winget..." Yellow
+            Ensure-Winget 
+        }
+        '3' { 
+            Write-Status "🚀 Выполняется настройка скрытых файлов..." Yellow
+            Show-HiddenFiles 
+        }
+        '4' { 
+            Write-Status "🚀 Переход к выбору программ для установки..." Yellow
+            Install-SelectedApps 
+        }
+        '5' { 
+            Write-Status "🚀 Выполняется настройка русского языка..." Yellow
+            Set-RussianLanguage 
+        }
+        '6' { 
+            Write-Status "🚀 Выполняется отключение UAC..." Yellow
+            Disable-UAC 
+        }
+        '7' { 
+            Write-Status "🚀 Выполняется debloat..." Yellow
+            Run-Debloat 
+        }
+        '8' { 
+            Write-Status "🚀 Выполняется установка WSL..." Yellow
+            Install-WSL 
+        }
+        default { 
+            Write-Status "❌ Неверный выбор задачи: $task" Red 
+        }
     }
 }
 
@@ -252,7 +338,7 @@ function Show-MultiTaskMenu {
             '6' { Disable-UAC }
             '7' { Run-Debloat }
             '8' { Install-WSL }
-            default { Write-Status "Неверный номер задачи: $task" Red }
+            default { Write-Status "❌ Неверный номер задачи: $task" Red }
         }
     }
 }
