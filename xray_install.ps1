@@ -2,6 +2,13 @@
 
 $ErrorActionPreference = "Stop"
 
+# Проверка прав администратора
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host "❌ Скрипт должен быть запущен с правами администратора!" -ForegroundColor Red
+    exit 1
+}
+
 # Конфигурационные параметры
 $InstallDir = "C:\Program Files\XrayReality"
 $XrayUrl = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
@@ -36,14 +43,21 @@ try {
     Write-Host "📦 Распаковка архива..."
     Expand-Archive -Path $ZipPath -DestinationPath $InstallDir -Force
     Remove-Item $ZipPath
-    Write-Host "✅ Xray успешно установлен"
+    Write-Host "✅ Архив Xray успешно распакован"
 }
 catch {
     Write-Host "❌ Ошибка при скачивании или распаковке Xray: $_" -ForegroundColor Red
     exit 1
 }
 
-$XrayExe = Join-Path $InstallDir "xray.exe"
+# Поиск xray.exe во вложенных директориях
+Write-Host "🔍 Поиск xray.exe в директории $InstallDir..."
+$XrayExe = Get-ChildItem -Path $InstallDir -Recurse -Include "xray.exe" | Select-Object -First 1 -ExpandProperty FullName
+if (-Not $XrayExe) {
+    Write-Host "❌ Файл xray.exe не найден в $InstallDir или ее поддиректориях" -ForegroundColor Red
+    exit 1
+}
+Write-Host "✅ Найден xray.exe: $XrayExe"
 
 function Generate-RandomShortId {
     $bytes = New-Object Byte[] 4
@@ -128,16 +142,18 @@ $configJson = @"
 $configPath = Join-Path $InstallDir "config.json"
 Set-Content -Path $configPath -Value $configJson -Encoding UTF8
 
-# Создание службы Windows (исправленная версия)
+# Создание службы Windows
 Write-Host "🛠️ Создание службы Windows..."
 try {
-    # Удаляем службу, если она уже существует
+    # Проверка и удаление существующей службы
     if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
-        Stop-Service -Name $ServiceName -Force
-        sc.exe delete $ServiceName | Out-Null
+        Write-Host "🗑️ Удаление существующей службы $ServiceName..."
+        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+        & sc.exe delete $ServiceName | Out-Null
+        Start-Sleep -Seconds 2
     }
 
-    # Создаем службу с правильными параметрами
+    # Создание службы
     $binPath = "`"$XrayExe`" run -c `"$configPath`""
     New-Service -Name $ServiceName `
                 -BinaryPathName $binPath `
@@ -145,8 +161,8 @@ try {
                 -StartupType Automatic `
                 -ErrorAction Stop | Out-Null
 
-    # Настраиваем автоматический перезапуск при сбоях
-    sc.exe failure $ServiceName reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
+    # Настройка автоматического перезапуска при сбоях
+    & sc.exe failure $ServiceName reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
 
     Start-Service -Name $ServiceName -ErrorAction Stop
     Write-Host "✅ Служба успешно создана и запущена"
