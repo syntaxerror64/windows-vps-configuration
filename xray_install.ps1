@@ -67,10 +67,19 @@ function Generate-RandomShortId {
 
 function Generate-Keys {
     Write-Host "🔑 Генерация ключей..."
-    $result = & $XrayExe x25519
-    $publicKey = ($result | Select-String "Public key" | ForEach-Object { $_.ToString().Split(":")[1].Trim() })
-    $privateKey = ($result | Select-String "Private key" | ForEach-Object { $_.ToString().Split(":")[1].Trim() })
-    return @{Public=$publicKey; Private=$privateKey}
+    try {
+        $result = & $XrayExe x25519
+        $publicKey = ($result | Select-String "Public key" | ForEach-Object { $_.ToString().Split(":")[1].Trim() })
+        $privateKey = ($result | Select-String "Private key" | ForEach-Object { $_.ToString().Split(":")[1].Trim() })
+        if (-not $publicKey -or -not $privateKey) {
+            throw "Не удалось сгенерировать ключи"
+        }
+        return @{Public=$publicKey; Private=$privateKey}
+    }
+    catch {
+        Write-Host "❌ Ошибка при генерации ключей: $_" -ForegroundColor Red
+        exit 1
+    }
 }
 
 # Запрос только логина и пароля для SOCKS
@@ -139,8 +148,28 @@ $configJson = @"
 }
 "@
 
+# Проверка корректности JSON
 $configPath = Join-Path $InstallDir "config.json"
-Set-Content -Path $configPath -Value $configJson -Encoding UTF8
+try {
+    $configJson | ConvertFrom-Json -ErrorAction Stop | Out-Null
+    Set-Content -Path $configPath -Value $configJson -Encoding UTF8
+    Write-Host "✅ Конфигурационный файл успешно создан: $configPath"
+}
+catch {
+    Write-Host "❌ Ошибка в формате JSON конфигурации: $_" -ForegroundColor Red
+    exit 1
+}
+
+# Тестирование запуска xray.exe с конфигурацией
+Write-Host "🔍 Тестирование запуска xray.exe..."
+try {
+    $testOutput = & $XrayExe run -c $configPath 2>&1
+    Write-Host "ℹ️ Вывод xray.exe: $testOutput"
+}
+catch {
+    Write-Host "❌ Ошибка при тестовом запуске xray.exe: $_" -ForegroundColor Red
+    exit 1
+}
 
 # Создание службы Windows
 Write-Host "🛠️ Создание службы Windows..."
@@ -164,11 +193,14 @@ try {
     # Настройка автоматического перезапуска при сбоях
     & sc.exe failure $ServiceName reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
 
+    # Запуск службы
+    Write-Host "🚀 Запуск службы $ServiceName..."
     Start-Service -Name $ServiceName -ErrorAction Stop
     Write-Host "✅ Служба успешно создана и запущена"
 }
 catch {
-    Write-Host "❌ Ошибка при создании службы: $_" -ForegroundColor Red
+    Write-Host "❌ Ошибка при создании или запуске службы: $_" -ForegroundColor Red
+    Write-Host "ℹ️ Проверьте журнал событий Windows (eventvwr) для дополнительной информации."
     exit 1
 }
 
