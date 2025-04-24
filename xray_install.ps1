@@ -34,16 +34,22 @@ Write-Host "=============================================="
 # Создание директории для установки
 if (-Not (Test-Path $InstallDir)) {
     Write-Host "📂 Создание директории для установки: $InstallDir"
-    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    try {
+        New-Item -ItemType Directory -Path $InstallDir -Force -ErrorAction Stop | Out-Null
+    }
+    catch {
+        Write-Host "❌ Ошибка при создании директории $InstallDir: $_" -ForegroundColor Red
+        exit 1
+    }
 }
 
 # Скачивание и распаковка Xray
 Write-Host "⬇️ Скачивание Xray..."
 try {
-    Invoke-WebRequest -Uri $XrayUrl -OutFile $ZipPath
+    Invoke-WebRequest -Uri $XrayUrl -OutFile $ZipPath -ErrorAction Stop
     Write-Host "📦 Распаковка архива..."
-    Expand-Archive -Path $ZipPath -DestinationPath $InstallDir -Force
-    Remove-Item $ZipPath
+    Expand-Archive -Path $ZipPath -DestinationPath $InstallDir -Force -ErrorAction Stop
+    Remove-Item $ZipPath -ErrorAction Stop
     Write-Host "✅ Архив Xray успешно распакован"
 }
 catch {
@@ -53,14 +59,18 @@ catch {
 
 # Поиск xray.exe во вложенных директориях
 Write-Host "🔍 Поиск xray.exe в директории $InstallDir..."
-$XrayExe = Get-ChildItem -Path $InstallDir -Recurse -Include "xray.exe" | Select-Object -First 1 -ExpandProperty FullName
-if (-Not $XrayExe) {
-    Write-Host "❌ Файл xray.exe не найден в $InstallDir или ее поддиректориях" -ForegroundColor Red
+try {
+    $XrayExe = Get-ChildItem -Path $InstallDir -Recurse -Include "xray.exe" -ErrorAction Stop | Select-Object -First 1 -ExpandProperty FullName
+    if (-Not $XrayExe) {
+        throw "Файл xray.exe не найден"
+    }
+    Write-Host "✅ Найден xray.exe: $XrayExe"
+}
+catch {
+    Write-Host "❌ Ошибка при поиске xray.exe: $_" -ForegroundColor Red
     exit 1
 }
-Write-Host "✅ Найден xray.exe: $XrayExe"
 
-# Генерация случайного пароля для SOCKS
 function Generate-RandomPassword {
     $length = 12
     $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()"
@@ -111,12 +121,16 @@ Write-Host "  - ShortID: $shortId"
 # Генерация ключей
 $keys = Generate-Keys
 
+# Экранирование пути к лог-файлу для JSON
+$escapedLogFile = $LogFile -replace '\\', '\\\\'
+
+# Генерация конфигурации JSON
 $configJson = @"
 {
   "log": {
     "loglevel": "warning",
-    "access": "$LogFile",
-    "error": "$LogFile"
+    "access": "$escapedLogFile",
+    "error": "$escapedLogFile"
   },
   "inbounds": [
     {
@@ -159,11 +173,11 @@ $configJson = @"
 }
 "@
 
-# Проверка корректности JSON
+# Проверка корректности JSON и сохранение
 $configPath = Join-Path $InstallDir "config.json"
 try {
     $configJson | ConvertFrom-Json -ErrorAction Stop | Out-Null
-    Set-Content -Path $configPath -Value $configJson -Encoding UTF8
+    Set-Content -Path $configPath -Value $configJson -Encoding UTF8 -ErrorAction Stop
     Write-Host "✅ Конфигурационный файл успешно создан: $configPath"
 }
 catch {
@@ -213,6 +227,9 @@ try {
 
     # Настройка автоматического перезапуска при сбоях
     & sc.exe failure $ServiceName reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Не удалось настроить параметры перезапуска службы"
+    }
 
     # Запуск службы
     Write-Host "🚀 Запуск службы $ServiceName..."
@@ -244,7 +261,14 @@ socks://$socksUsername`:$socksPassword@$(hostname)`:$port#XrayReality
 xray socks -inbound `"socks://$socksUsername`:$socksPassword@:$port`" -outbound `"outbound= freedom`"
 "@
 
-Set-Content -Path $KeysFile -Value $connectionInfo -Encoding UTF8
+try {
+    Set-Content -Path $KeysFile -Value $connectionInfo -Encoding UTF8 -ErrorAction Stop
+    Write-Host "✅ Параметры подключения сохранены в файл: $KeysFile"
+}
+catch {
+    Write-Host "❌ Ошибка при сохранении параметров подключения: $_" -ForegroundColor Red
+    exit 1
+}
 
 Write-Host "`n=============================================="
 Write-Host "✅ Установка успешно завершена!"
