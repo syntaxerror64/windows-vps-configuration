@@ -84,8 +84,13 @@ try {
     Write-Host "📂 Создание директории для установки: $InstallDir"
     New-Item -ItemType Directory -Path $InstallDir -Force -ErrorAction Stop | Out-Null
 
+    # Проверка корректности URL
+    if (-not $XrayUrl -or $XrayUrl -notmatch '^https?://') {
+        throw "Некорректный URL для скачивания Xray: ${XrayUrl}"
+    }
+
     # Проверка доступности URL
-    Write-Host "🔍 Проверка доступности $XrayUrl..."
+    Write-Host "🔍 Проверка доступности ${XrayUrl}..."
     try {
         $webRequest = [System.Net.WebRequest]::Create($XrayUrl)
         $webRequest.Method = "HEAD"
@@ -93,7 +98,7 @@ try {
         $response.Close()
     }
     catch {
-        throw "Не удалось получить доступ к $XrayUrl: $_"
+        throw "Не удалось получить доступ к ${XrayUrl}: $_"
     }
 
     Write-Host "⬇️ Скачивание Xray..."
@@ -128,7 +133,7 @@ try {
     $port = Get-Random -Minimum 20000 -Maximum 60000
     # Проверка занятости порта
     Write-Host "🔍 Проверка доступности порта $port..."
-    $portInUse = Test-NetConnection -ComputerName "localhost" -Port $port -InformationLevel Quiet -ErrorAction SilentlyContinue
+    $portInUse = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
     if ($portInUse) {
         throw "Порт $port уже занят. Попробуйте запустить скрипт снова."
     }
@@ -193,26 +198,29 @@ try {
     $timeoutSeconds = 10
     $stdoutFile = "$env:TEMP\xray_test_stdout.txt"
     $stderrFile = "$env:TEMP\xray_test_stderr.txt"
-    $process = Start-Process -FilePath $XrayExe -ArgumentList "run -c `"$configPath`"" -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile -NoNewWindow -PassThru
-    $waitResult = $process.WaitForExit($timeoutSeconds * 1000)
-    
-    if (-not $waitResult) {
-        $process.Kill()
+    try {
+        $process = Start-Process -FilePath $XrayExe -ArgumentList "run -c `"$configPath`"" -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile -NoNewWindow -PassThru
+        $waitResult = $process.WaitForExit($timeoutSeconds * 1000)
+        
+        if (-not $waitResult) {
+            $process.Kill()
+            $stdout = Get-Content -Path $stdoutFile -Raw -ErrorAction SilentlyContinue
+            $stderr = Get-Content -Path $stderrFile -Raw -ErrorAction SilentlyContinue
+            $errorMsg = "Тестирование xray.exe зависло после $timeoutSeconds секунд. Stdout: $stdout`nStderr: $stderr"
+            Save-DebugLog -ErrorMessage $errorMsg -ConfigPath $configPath -XrayLogPath $LogFile
+            throw $errorMsg
+        }
+
         $stdout = Get-Content -Path $stdoutFile -Raw -ErrorAction SilentlyContinue
         $stderr = Get-Content -Path $stderrFile -Raw -ErrorAction SilentlyContinue
-        Remove-Item $stdoutFile, $stderrFile -ErrorAction SilentlyContinue
-        $errorMsg = "Тестирование xray.exe зависло после $timeoutSeconds секунд. Stdout: $stdout`nStderr: $stderr"
-        Save-DebugLog -ErrorMessage $errorMsg -ConfigPath $configPath -XrayLogPath $LogFile
-        throw $errorMsg
+        $testOutput = "$stdout`n$stderr"
+        Write-Host "ℹ️ Вывод xray.exe: $testOutput"
+        if ($testOutput -match "error" -or $testOutput -match "failed") {
+            throw "Обнаружена ошибка в выводе xray.exe: $testOutput"
+        }
     }
-
-    $stdout = Get-Content -Path $stdoutFile -Raw -ErrorAction SilentlyContinue
-    $stderr = Get-Content -Path $stderrFile -Raw -ErrorAction SilentlyContinue
-    $testOutput = "$stdout`n$stderr"
-    Remove-Item $stdoutFile, $stderrFile -ErrorAction SilentlyContinue
-    Write-Host "ℹ️ Вывод xray.exe: $testOutput"
-    if ($testOutput -match "error" -or $testOutput -match "failed") {
-        throw "Обнаружена ошибка в выводе xray.exe: $testOutput"
+    finally {
+        Remove-Item $stdoutFile, $stderrFile -ErrorAction SilentlyContinue
     }
 
     Write-Host "🛠️ Создание службы Windows..."
@@ -244,6 +252,16 @@ try {
 
     Write-Host "🚀 Запуск службы $ServiceName..."
     Start-Service -Name $ServiceName -ErrorAction Stop
+    $service = Get-Service -Name $ServiceName
+    $timeout = [timespan]::FromSeconds(10)
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($service.Status -ne 'Running' -and $stopwatch.Elapsed -lt $timeout) {
+        Start-Sleep -Milliseconds 500
+        $service.Refresh()
+    }
+    if ($service.Status -ne 'Running') {
+        throw "Не удалось запустить службу $ServiceName в течение $timeout секунд."
+    }
     Write-Host "✅ Служба успешно создана и запущена"
 
     # Открытие порта в брандмауэре
