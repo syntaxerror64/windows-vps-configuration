@@ -257,7 +257,7 @@ function Show-Menu {
             Show-MultiTaskMenu
         }
         default {
-            Write-Status "❌ Неверный выбор. Завершение." Red
+            Write-Status "Неверный выбор. Завершение." Red
         }
     }
 }
@@ -274,43 +274,26 @@ function Show-SingleTaskMenu {
     Write-Host "8. Установить WSL с Ubuntu"
 
     $task = Read-Host "Введите номер (1-8)"
-    Write-Status "`n🔍 Выбрана задача: $task" Yellow # Debugging output
     switch ($task) {
-        '1' { 
-            Write-Status "🚀 Выполняется установка Chocolatey..." Yellow
-            Install-Chocolatey 
+        '1' { Install-Chocolatey }
+        '2' { Ensure-Winget }
+        '3' { Show-HiddenFiles }
+        '4' {
+            Write-Host "`n📋 Выберите режим установки программ:" -ForegroundColor Cyan
+            Write-Host "1. Установить все программы"
+            Write-Host "2. Выбрать отдельные программы"
+            $subChoice = Read-Host "`nВведите номер (1-2)"
+            switch ($subChoice) {
+                '1' { Install-Apps }
+                '2' { Install-SelectedApps }
+                default { Write-Status "Неверный выбор" Red }
+            }
         }
-        '2' { 
-            Write-Status "🚀 Выполняется установка Winget..." Yellow
-            Ensure-Winget 
-        }
-        '3' { 
-            Write-Status "🚀 Выполняется настройка скрытых файлов..." Yellow
-            Show-HiddenFiles 
-        }
-        '4' { 
-            Write-Status "🚀 Переход к выбору программ для установки..." Yellow
-            Install-SelectedApps 
-        }
-        '5' { 
-            Write-Status "🚀 Выполняется настройка русского языка..." Yellow
-            Set-RussianLanguage 
-        }
-        '6' { 
-            Write-Status "🚀 Выполняется отключение UAC..." Yellow
-            Disable-UAC 
-        }
-        '7' { 
-            Write-Status "🚀 Выполняется debloat..." Yellow
-            Run-Debloat 
-        }
-        '8' { 
-            Write-Status "🚀 Выполняется установка WSL..." Yellow
-            Install-WSL 
-        }
-        default { 
-            Write-Status "❌ Неверный выбор задачи: $task" Red 
-        }
+        '5' { Set-RussianLanguage }
+        '6' { Disable-UAC }
+        '7' { Run-Debloat }
+        '8' { Install-WSL }
+        default { Write-Status "Неверный выбор" Red }
     }
 }
 
@@ -338,7 +321,7 @@ function Show-MultiTaskMenu {
             '6' { Disable-UAC }
             '7' { Run-Debloat }
             '8' { Install-WSL }
-            default { Write-Status "❌ Неверный номер задачи: $task" Red }
+            default { Write-Status "Неверный номер задачи: $task" Red }
         }
     }
 }
