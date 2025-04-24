@@ -82,7 +82,6 @@ function Set-RussianLanguage {
         Set-Culture $LangTag
         Set-WinHomeLocation -GeoId 203
 
-        # Установка языкового пакета
         Install-Language -Language $LangTag -Confirm:$false
 
         Write-Status "✅ Язык системы изменён на русский. Требуется перезагрузка." Green
