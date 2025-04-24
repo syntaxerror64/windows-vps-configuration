@@ -9,11 +9,10 @@ function Write-Status($msg, $color = "White") {
 function Ensure-Winget {
     Write-Status "`n🔍 Проверка наличия Winget..." Cyan
     if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
-        Write-Status "🚧 Winget не найден. Пытаемся установить все зависимости..." Yellow
+        Write-Status "🚧 Winget не найден. Устанавливаем зависимости..." Yellow
         $temp = "$env:TEMP\winget-install"
         New-Item -ItemType Directory -Path $temp -Force | Out-Null
 
-        # Зависимости
         $vclibs = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
         $xamlZip = "$temp\Xaml.zip"
         $xamlUrl = "https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.8.6"
@@ -74,13 +73,19 @@ function Show-HiddenFiles {
 function Set-RussianLanguage {
     Write-Status "`n🌍 Настройка языка системы: русский + английский..." Cyan
     try {
-        $LangList = New-WinUserLanguageList ru-RU
+        $LangTag = "ru-RU"
+        $LangList = New-WinUserLanguageList $LangTag
         $LangList.Add("en-US")
         Set-WinUserLanguageList $LangList -Force
-        Set-WinUILanguageOverride -Language "ru-RU"
-        Set-WinSystemLocale ru-RU
-        Set-Culture ru-RU
-        Write-Status "✅ Язык системы изменён. Требуется перезагрузка." Green
+        Set-WinUILanguageOverride -Language $LangTag
+        Set-WinSystemLocale $LangTag
+        Set-Culture $LangTag
+        Set-WinHomeLocation -GeoId 203
+        Set-WinInputMethodOverride -InputTip "0409:00000419"
+
+        Install-Language -Language $LangTag -Confirm:$false
+
+        Write-Status "✅ Язык системы изменён на русский. Требуется перезагрузка." Green
     } catch {
         Write-Status "❌ Не удалось изменить язык: $_" Red
     }
@@ -105,18 +110,81 @@ function Run-Debloat {
     }
 }
 
-# Главная точка входа
-Write-Status "`n📦 Начинаем установку и настройку системы..." Cyan
+function Show-Menu {
+    Write-Host "`n📋 Выберите режим работы скрипта:" -ForegroundColor Cyan
+    Write-Host "1. 🧰 Установить и настроить всё"
+    Write-Host "2. 🔧 Выполнить только одну задачу"
+    Write-Host "3. ✅ Выбрать несколько задач"
+    $choice = Read-Host "`nВведите номер (1-3)"
 
-try {
-    Ensure-Winget
-    Show-HiddenFiles
-    Install-Apps
-    Set-RussianLanguage
-    Disable-UAC
-    Run-Debloat
-
-    Write-Status "`n🎉 Все шаги завершены! Перезагрузите ПК для применения всех изменений." Green
-} catch {
-    Write-Status "❌ Ошибка выполнения скрипта: $_" Red
+    switch ($choice) {
+        '1' {
+            Ensure-Winget
+            Show-HiddenFiles
+            Install-Apps
+            Set-RussianLanguage
+            Disable-UAC
+            Run-Debloat
+        }
+        '2' {
+            Show-SingleTaskMenu
+        }
+        '3' {
+            Show-MultiTaskMenu
+        }
+        default {
+            Write-Status "Неверный выбор. Завершение." Red
+        }
+    }
 }
+
+function Show-SingleTaskMenu {
+    Write-Host "`n🔧 Выберите задачу:" -ForegroundColor Cyan
+    Write-Host "1. Установить Winget"
+    Write-Host "2. Показать скрытые файлы"
+    Write-Host "3. Установить программы"
+    Write-Host "4. Установить русский язык"
+    Write-Host "5. Отключить UAC"
+    Write-Host "6. Выполнить debloat"
+
+    $task = Read-Host "Введите номер (1-6)"
+    switch ($task) {
+        '1' { Ensure-Winget }
+        '2' { Show-HiddenFiles }
+        '3' { Install-Apps }
+        '4' { Set-RussianLanguage }
+        '5' { Disable-UAC }
+        '6' { Run-Debloat }
+        default { Write-Status "Неверный выбор" Red }
+    }
+}
+
+function Show-MultiTaskMenu {
+    Write-Host "`n✅ Укажите номера задач через запятую (например: 1,3,5):" -ForegroundColor Cyan
+    Write-Host "1. Установить Winget"
+    Write-Host "2. Показать скрытые файлы"
+    Write-Host "3. Установить программы"
+    Write-Host "4. Установить русский язык"
+    Write-Host "5. Отключить UAC"
+    Write-Host "6. Выполнить debloat"
+
+    $input = Read-Host "Введите номера"
+    $tasks = $input -split ',' | ForEach-Object { $_.Trim() }
+
+    foreach ($task in $tasks) {
+        switch ($task) {
+            '1' { Ensure-Winget }
+            '2' { Show-HiddenFiles }
+            '3' { Install-Apps }
+            '4' { Set-RussianLanguage }
+            '5' { Disable-UAC }
+            '6' { Run-Debloat }
+            default { Write-Status "Неверный номер задачи: $task" Red }
+        }
+    }
+}
+
+# Точка входа
+Write-Status "`n🚀 Запуск скрипта установки и настройки системы..." Green
+Show-Menu
+Write-Status "`n🟢 Готово! Перезагрузите систему для применения всех изменений." Cyan
