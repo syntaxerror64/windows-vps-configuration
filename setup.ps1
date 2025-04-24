@@ -124,6 +124,20 @@ function Run-Debloat {
     }
 }
 
+function Install-WSL {
+    Write-Status "`n🐧 Устанавливаем WSL с дистрибутивом Ubuntu..." Cyan
+    try {
+        if (-not (Get-Command wsl -ErrorAction SilentlyContinue)) {
+            wsl --install -d Ubuntu
+            Write-Status "✅ WSL и Ubuntu установлены. Требуется перезагрузка." Green
+        } else {
+            Write-Status "✅ WSL уже установлен." Green
+        }
+    } catch {
+        Write-Status "❌ Ошибка установки WSL: $_" Red
+    }
+}
+
 function Show-Menu {
     Write-Host "`n📋 Выберите режим работы скрипта:" -ForegroundColor Cyan
     Write-Host "1. 🧰 Установить и настроить всё"
@@ -139,6 +153,7 @@ function Show-Menu {
             Set-RussianLanguage
             Disable-UAC
             Run-Debloat
+            Install-WSL
         }
         '2' {
             Show-SingleTaskMenu
@@ -160,8 +175,9 @@ function Show-SingleTaskMenu {
     Write-Host "4. Установить русский язык"
     Write-Host "5. Отключить UAC"
     Write-Host "6. Выполнить debloat"
+    Write-Host "7. Установить WSL с Ubuntu"
 
-    $task = Read-Host "Введите номер (1-6)"
+    $task = Read-Host "Введите номер (1-7)"
     switch ($task) {
         '1' { Ensure-Winget }
         '2' { Show-HiddenFiles }
@@ -169,6 +185,7 @@ function Show-SingleTaskMenu {
         '4' { Set-RussianLanguage }
         '5' { Disable-UAC }
         '6' { Run-Debloat }
+        '7' { Install-WSL }
         default { Write-Status "Неверный выбор" Red }
     }
 }
@@ -181,6 +198,7 @@ function Show-MultiTaskMenu {
     Write-Host "4. Установить русский язык"
     Write-Host "5. Отключить UAC"
     Write-Host "6. Выполнить debloat"
+    Write-Host "7. Установить WSL с Ubuntu"
 
     $input = Read-Host "Введите номера"
     $tasks = $input -split ',' | ForEach-Object { $_.Trim() }
@@ -193,6 +211,7 @@ function Show-MultiTaskMenu {
             '4' { Set-RussianLanguage }
             '5' { Disable-UAC }
             '6' { Run-Debloat }
+            '7' { Install-WSL }
             default { Write-Status "Неверный номер задачи: $task" Red }
         }
     }
