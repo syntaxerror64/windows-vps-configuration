@@ -286,19 +286,19 @@ function Show-SingleTaskMenu {
             switch ($subChoice) {
                 '1' { Install-Apps }
                 '2' { Install-SelectedApps }
-                default { Write-Status "Неверный выбор" Red }
+                default { Write-Status "❌ Неверный выбор режима установки программ." Red }
             }
         }
         '5' { Set-RussianLanguage }
         '6' { Disable-UAC }
         '7' { Run-Debloat }
         '8' { Install-WSL }
-        default { Write-Status "Неверный выбор" Red }
+        default { Write-Status "❌ Неверный выбор задачи." Red }
     }
 }
 
 function Show-MultiTaskMenu {
-    Write-Host "`n✅ Укажите номера задач через запятую (например: 1,3,5):" -ForegroundColor Cyan
+    Write-Host "`n✅  ✅ Укажите номера задач через запятую (например: 1,3,5):" -ForegroundColor Cyan
     Write-Host "1. Установить Chocolatey"
     Write-Host "2. Установить Winget"
     Write-Host "3. Показать скрытые файлы"
@@ -321,7 +321,7 @@ function Show-MultiTaskMenu {
             '6' { Disable-UAC }
             '7' { Run-Debloat }
             '8' { Install-WSL }
-            default { Write-Status "Неверный номер задачи: $task" Red }
+            default { Write-Status "❌ Неверный номер задачи: $task" Red }
         }
     }
 }
