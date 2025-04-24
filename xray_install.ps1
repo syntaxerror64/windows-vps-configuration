@@ -1,4 +1,4 @@
-# Установка и настройка Xray + Reality с автозапуском и автогенерацией ключей
+# Установка и настройка Xray + Reality с автозапуском
 
 $ErrorActionPreference = "Stop"
 
@@ -14,12 +14,9 @@ $ZipPath = "$env:TEMP\Xray.zip"
 $popularDomains = @(
     "www.google.com",
     "www.microsoft.com",
-    "www.apple.com",
     "www.cloudflare.com",
     "www.github.com",
-    "www.amazon.com",
-    "www.facebook.com",
-    "www.twitter.com"
+    "www.amazon.com"
 )
 
 Write-Host "=============================================="
@@ -29,7 +26,7 @@ Write-Host "=============================================="
 # Создание директории для установки
 if (-Not (Test-Path $InstallDir)) {
     Write-Host "📂 Создание директории для установки: $InstallDir"
-    New-Item -ItemType Directory -Path $InstallDir | Out-Null
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 }
 
 # Скачивание и распаковка Xray
@@ -49,12 +46,9 @@ catch {
 $XrayExe = Join-Path $InstallDir "xray.exe"
 
 function Generate-RandomShortId {
-    $chars = "0123456789abcdef"
-    $shortId = ""
-    for ($i = 0; $i -lt 8; $i++) {
-        $shortId += $chars[(Get-Random -Maximum $chars.Length)]
-    }
-    return $shortId
+    $bytes = New-Object Byte[] 4
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    return [System.BitConverter]::ToString($bytes).Replace("-", "").Substring(0, 8).ToLower()
 }
 
 function Generate-Keys {
@@ -131,14 +125,30 @@ $configJson = @"
 }
 "@
 
-Set-Content -Path (Join-Path $InstallDir "config.json") -Value $configJson -Encoding UTF8
+$configPath = Join-Path $InstallDir "config.json"
+Set-Content -Path $configPath -Value $configJson -Encoding UTF8
 
-# Создание службы Windows
+# Создание службы Windows (исправленная версия)
 Write-Host "🛠️ Создание службы Windows..."
 try {
-    sc.exe create $ServiceName binPath= "`"$XrayExe`" run -c `"$(Join-Path $InstallDir "config.json")`"" start= auto
-    sc.exe failure $ServiceName reset= 0 actions= restart/5000/restart/5000/restart/5000
-    Start-Service -Name $ServiceName
+    # Удаляем службу, если она уже существует
+    if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+        Stop-Service -Name $ServiceName -Force
+        sc.exe delete $ServiceName | Out-Null
+    }
+
+    # Создаем службу с правильными параметрами
+    $binPath = "`"$XrayExe`" run -c `"$configPath`""
+    New-Service -Name $ServiceName `
+                -BinaryPathName $binPath `
+                -DisplayName "Xray Reality Service" `
+                -StartupType Automatic `
+                -ErrorAction Stop | Out-Null
+
+    # Настраиваем автоматический перезапуск при сбоях
+    sc.exe failure $ServiceName reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
+
+    Start-Service -Name $ServiceName -ErrorAction Stop
     Write-Host "✅ Служба успешно создана и запущена"
 }
 catch {
@@ -157,7 +167,6 @@ $connectionInfo = @"
 ShortID: $shortId
 ServerName: $serverName
 PublicKey: $($keys.Public)
-PrivateKey: $($keys.Private)
 
 === QR-код для клиента ===
 socks://$socksUsername`:$socksPassword@$(hostname)`:$port#XrayReality
