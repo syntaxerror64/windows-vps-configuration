@@ -34,7 +34,7 @@ if (-Not (Test-Path $InstallDir)) {
         New-Item -ItemType Directory -Path $InstallDir -Force -ErrorAction Stop | Out-Null
     }
     catch {
-        Write-Host "❌ Ошибка при создании директории $InstallDir: $_" -ForegroundColor Red
+        Write-Host "❌ Ошибка при создании директории ${InstallDir}: $_" -ForegroundColor Red
         exit 1
     }
 }
