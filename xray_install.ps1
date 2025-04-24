@@ -155,6 +155,7 @@ try {
         $configJson | ConvertFrom-Json -ErrorAction Stop | Out-Null
         [System.IO.File]::WriteAllText($configPath, $configJson, [System.Text.UTF8Encoding]::new($false))
         Write-Host "✅ Конфигурационный файл успешно создан: $configPath"
+        Write-Host "`n📄 Содержимое config.json:`n$configJson"
     }
     catch {
         Write-Host "❌ Ошибка в формате JSON конфигурации: $_" -ForegroundColor Red
@@ -162,7 +163,23 @@ try {
     }
 
     Write-Host "🔍 Тестирование запуска xray.exe..."
-    $testOutput = & $XrayExe run -c $configPath 2>&1
+    $timeoutSeconds = 10
+    $tempOutputFile = "$env:TEMP\xray_test_output.txt"
+    $process = Start-Process -FilePath $XrayExe -ArgumentList "run -c `"$configPath`"" -RedirectStandardOutput $tempOutputFile -RedirectStandardError $tempOutputFile -NoNewWindow -PassThru
+    $waitResult = $process.WaitForExit($timeoutSeconds * 1000)
+    
+    if (-not $waitResult) {
+        # Процесс не завершился в течение тайм-аута
+        $process.Kill()
+        $testOutput = Get-Content -Path $tempOutputFile -Raw -ErrorAction SilentlyContinue
+        Remove-Item $tempOutputFile -ErrorAction SilentlyContinue
+        $errorMsg = "Тестирование xray.exe зависло после $timeoutSeconds секунд. Вывод: $testOutput"
+        Save-DebugLog -ErrorMessage $errorMsg -ConfigPath $configPath -XrayLogPath $LogFile
+        throw $errorMsg
+    }
+
+    $testOutput = Get-Content -Path $tempOutputFile -Raw -ErrorAction SilentlyContinue
+    Remove-Item $tempOutputFile -ErrorAction SilentlyContinue
     Write-Host "ℹ️ Вывод xray.exe: $testOutput"
     if ($testOutput -match "error" -or $testOutput -match "failed") {
         throw "Обнаружена ошибка в выводе xray.exe: $testOutput"
@@ -228,6 +245,7 @@ xray socks -inbound `"socks://$socksUsername`:$socksPassword@:$port`" -outbound 
     Write-Host "Логин: $socksUsername"
     Write-Host "Пароль: $socksPassword"
     Write-Host "`nМожете отсканировать QR-код из файла keys.txt для быстрого подключения"
+    Write-Host "`n⚠️ Проверьте, что брандмауэр Windows и антивирус не блокируют порт $port и xray.exe."
 }
 catch {
     Save-DebugLog -ErrorMessage $_.Exception.Message -ConfigPath $configPath -XrayLogPath $LogFile
