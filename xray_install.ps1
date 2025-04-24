@@ -45,7 +45,7 @@ function Write-DebugLog {
             "Config: $(if (Test-Path $ConfigPath) { Get-Content $ConfigPath -Raw } else { 'N/A' })",
             "Service: $(Get-Service $ServiceName -ErrorAction SilentlyContinue | Format-List | Out-String)"
         )
-        [System.IO.File]::WriteAllText($DebugLogPath, $DebugInfo -join "`n", [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllText($DebugLogPath, ($DebugInfo -join "`n"), [System.Text.Encoding]::UTF8)
         Write-Host "Отладочный лог сохранен: $DebugLogPath" -ForegroundColor Yellow
     }
     catch {
@@ -58,7 +58,7 @@ function Test-Prerequisites {
     if (-not (Test-NetConnection -ComputerName "github.com" -Port 443 -InformationLevel Quiet)) {
         throw "Нет подключения к интернету."
     }
-    Write-Host "✅ Проверки окружения пройдены" -ForegroundColor Cyan
+    Write-Host "Проверки окружения пройдены" -ForegroundColor Cyan
 }
 
 # Очистка предыдущей установки
@@ -80,7 +80,7 @@ function Get-XrayBinary {
     Invoke-WebRequest -Uri $XrayUrl -OutFile $ZipPath -UseBasicParsing -TimeoutSec 30
     $Timer.Stop()
     $time = [math]::Round($Timer.Elapsed.TotalSeconds, 2)
-    Write-Host "✅ Загрузка завершена ($time сек.)" -ForegroundColor Green
+    Write-Host "Загрузка завершена ($time сек.)" -ForegroundColor Green
     
     Write-Host "Распаковка архива..." -ForegroundColor Green
     Expand-Archive -Path $ZipPath -DestinationPath $InstallDir -Force
@@ -130,7 +130,9 @@ function New-XrayConfig {
     "outbounds": [{"protocol": "freedom", "settings": {}}]
 }
 "@
-    if (-not (Test-Json $ConfigJson -ErrorAction SilentlyContinue)) { throw "Ошибка в JSON конфигурации." }
+    if (-not (Test-Json $ConfigJson -ErrorAction SilentlyContinue)) {
+        throw "Ошибка в JSON конфигурации."
+    }
     [System.IO.File]::WriteAllText($ConfigPath, $ConfigJson, [System.Text.Encoding]::UTF8)
 }
 
@@ -153,12 +155,14 @@ function Install-XrayService {
     New-Service @ServiceParams | Out-Null
     sc.exe failure $ServiceName reset= 0 actions= restart/5000 | Out-Null
     Start-Service $ServiceName
-    Write-Host "✅ Служба успешно запущена" -ForegroundColor Green
+    Write-Host "Служба успешно запущена" -ForegroundColor Green
 }
 
 # Настройка брандмауэра
 function Set-FirewallRule {
-    param ([int]$Port)
+    param (
+        [int]$Port
+    )
     $RuleName = "XraySocks_$Port"
     New-NetFirewallRule -Name $RuleName `
                         -DisplayName "Xray SOCKS5 ($Port)" `
@@ -169,13 +173,13 @@ function Set-FirewallRule {
                         -Enabled True `
                         -Profile Any `
                         -ErrorAction SilentlyContinue | Out-Null
-    Write-Host "✅ Правило брандмауэра добавлено" -ForegroundColor Green
+    Write-Host "Правило брандмауэра добавлено" -ForegroundColor Green
 }
 
 # Основной процесс
 try {
     Start-Transcript -Path (Join-Path $env:TEMP "xray_install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log") -Append
-    Write-Host "🚀 Запуск установки Xray + SOCKS5 Proxy" -ForegroundColor Cyan
+    Write-Host "Запуск установки Xray + SOCKS5 Proxy" -ForegroundColor Cyan
     
     Test-Prerequisites
     Remove-PreviousInstallation
@@ -183,7 +187,7 @@ try {
     
     $SocksUsername = Get-UserInput
     $SocksPassword = -join ((33..126 | Get-Random -Count 16) | ForEach-Object { [char]$_ })
-    Write-Host "🔑 Сгенерирован пароль: $SocksPassword" -ForegroundColor Cyan
+    Write-Host "Сгенерирован пароль: $SocksPassword" -ForegroundColor Cyan
     
     do {
         $Port = Get-Random -Minimum 20000 -Maximum 60000
@@ -203,10 +207,10 @@ try {
 "@
     [System.IO.File]::WriteAllText($KeysFile, $ConnectionInfo, [System.Text.Encoding]::UTF8)
     
-    Write-Host "✅ Установка завершена! Настройки сохранены в: $KeysFile" -ForegroundColor Green
+    Write-Host "Установка завершена! Настройки сохранены в: $KeysFile" -ForegroundColor Green
 }
 catch {
-    Write-Host "❌ Ошибка: $_" -ForegroundColor Red
+    Write-Host "Ошибка: $_" -ForegroundColor Red
     Write-DebugLog -ErrorMessage $_.Exception.Message
     exit 1
 }
