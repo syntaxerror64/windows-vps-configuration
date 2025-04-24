@@ -1,5 +1,3 @@
-# setup.ps1
-
 $ErrorActionPreference = "Stop"
 
 function Write-Status($msg, $color = "White") {
@@ -47,7 +45,8 @@ function Install-Apps {
         @{ name = "Docker Desktop"; id = "Docker.DockerDesktop" },
         @{ name = "Python"; id = "Python.Python.3" },
         @{ name = "Notepad++"; id = "Notepad++.Notepad++" },
-        @{ name = "Total Commander"; id = "Ghisler.TotalCommander" }
+        @{ name = "Total Commander"; id = "Ghisler.TotalCommander" },
+        @{ name = "Visual Studio Code"; id = "Microsoft.VisualStudioCode" }
     )
 
     foreach ($app in $apps) {
@@ -58,6 +57,21 @@ function Install-Apps {
         } catch {
             Write-Status "❌ Ошибка установки $($app.name): $_" Red
         }
+    }
+
+    # Альтернативный метод установки VS Code через прямое скачивание
+    Write-Status "`n⬇️ Устанавливаем Visual Studio Code (альтернативный метод)..." Cyan
+    try {
+        if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
+            Invoke-WebRequest -Uri https://aka.ms/win32-x64-user-stable -OutFile "$env:TEMP\vscode-install.exe"
+            Start-Process -FilePath "$env:TEMP\vscode-install.exe" -Args "/silent /mergetasks=!runcode" -Wait
+            Remove-Item "$env:TEMP\vscode-install.exe" -Force -ErrorAction SilentlyContinue
+            Write-Status "✅ Visual Studio Code установлен (альтернативный метод)." Green
+        } else {
+            Write-Status "✅ Visual Studio Code уже установлен." Green
+        }
+    } catch {
+        Write-Status "❌ Ошибка установки Visual Studio Code (альтернативный метод): $_" Red
     }
 }
 
