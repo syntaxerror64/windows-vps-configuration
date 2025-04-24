@@ -15,6 +15,10 @@ function Save-DebugLog {
 Timestamp: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 Error Message: $ErrorMessage
 
+=== System Info ===
+CPU Usage: $(Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor | Where-Object { $_.Name -eq "_Total" } | Select-Object -ExpandProperty PercentProcessorTime)%
+Memory Usage: $([math]::Round((Get-CimInstance Win32_OperatingSystem | Select-Object -ExpandProperty TotalVisibleMemorySize -First 1) / 1MB - (Get-CimInstance Win32_OperatingSystem | Select-Object -ExpandProperty FreePhysicalMemory -First 1) / 1MB, 2)) GB
+
 === Contents of config.json ===
 $(if (Test-Path $ConfigPath) { Get-Content -Path $ConfigPath -Raw } else { "config.json not found" })
 
@@ -72,9 +76,24 @@ try {
     Write-Host "🚀 Начало установки Xray + Socks"
     Write-Host "=============================================="
 
-    if (-Not (Test-Path $InstallDir)) {
-        Write-Host "📂 Создание директории для установки: $InstallDir"
-        New-Item -ItemType Directory -Path $InstallDir -Force -ErrorAction Stop | Out-Null
+    # Очистка старых файлов
+    if (Test-Path $InstallDir) {
+        Write-Host "🗑️ Удаление старых файлов в $InstallDir..."
+        Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction Stop
+    }
+    Write-Host "📂 Создание директории для установки: $InstallDir"
+    New-Item -ItemType Directory -Path $InstallDir -Force -ErrorAction Stop | Out-Null
+
+    # Проверка доступности URL
+    Write-Host "🔍 Проверка доступности $XrayUrl..."
+    try {
+        $webRequest = [System.Net.WebRequest]::Create($XrayUrl)
+        $webRequest.Method = "HEAD"
+        $response = $webRequest.GetResponse()
+        $response.Close()
+    }
+    catch {
+        throw "Не удалось получить доступ к $XrayUrl: $_"
     }
 
     Write-Host "⬇️ Скачивание Xray..."
@@ -99,12 +118,20 @@ try {
     }
 
     Write-Host "`n🔐 Введите учетные данные для SOCKS-подключения"
-    $socksUsername = Read-Host "Введите логин"
+    $socksUsername = Read-Host "Введите логин (только буквы, цифры, _, -)"
+    if (-not $socksUsername -or $socksUsername -notmatch '^[a-zA-Z0-9_-]+$') {
+        throw "Логин должен содержать только буквы, цифры, '_' или '-' и не быть пустым"
+    }
     $socksPassword = Generate-RandomPassword
     Write-Host "🔑 Сгенерирован случайный пароль: $socksPassword"
 
     $port = Get-Random -Minimum 20000 -Maximum 60000
-    $uuid = [guid]::NewGuid().ToString()
+    # Проверка занятости порта
+    Write-Host "🔍 Проверка доступности порта $port..."
+    $portInUse = Test-NetConnection -ComputerName "localhost" -Port $port -InformationLevel Quiet -ErrorAction SilentlyContinue
+    if ($portInUse) {
+        throw "Порт $port уже занят. Попробуйте запустить скрипт снова."
+    }
 
     Write-Host "`n🛠️ Генерация параметров подключения:"
     Write-Host "  - Порт: $port"
@@ -164,22 +191,25 @@ try {
 
     Write-Host "🔍 Тестирование запуска xray.exe..."
     $timeoutSeconds = 10
-    $tempOutputFile = "$env:TEMP\xray_test_output.txt"
-    $process = Start-Process -FilePath $XrayExe -ArgumentList "run -c `"$configPath`"" -RedirectStandardOutput $tempOutputFile -RedirectStandardError $tempOutputFile -NoNewWindow -PassThru
+    $stdoutFile = "$env:TEMP\xray_test_stdout.txt"
+    $stderrFile = "$env:TEMP\xray_test_stderr.txt"
+    $process = Start-Process -FilePath $XrayExe -ArgumentList "run -c `"$configPath`"" -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile -NoNewWindow -PassThru
     $waitResult = $process.WaitForExit($timeoutSeconds * 1000)
     
     if (-not $waitResult) {
-        # Процесс не завершился в течение тайм-аута
         $process.Kill()
-        $testOutput = Get-Content -Path $tempOutputFile -Raw -ErrorAction SilentlyContinue
-        Remove-Item $tempOutputFile -ErrorAction SilentlyContinue
-        $errorMsg = "Тестирование xray.exe зависло после $timeoutSeconds секунд. Вывод: $testOutput"
+        $stdout = Get-Content -Path $stdoutFile -Raw -ErrorAction SilentlyContinue
+        $stderr = Get-Content -Path $stderrFile -Raw -ErrorAction SilentlyContinue
+        Remove-Item $stdoutFile, $stderrFile -ErrorAction SilentlyContinue
+        $errorMsg = "Тестирование xray.exe зависло после $timeoutSeconds секунд. Stdout: $stdout`nStderr: $stderr"
         Save-DebugLog -ErrorMessage $errorMsg -ConfigPath $configPath -XrayLogPath $LogFile
         throw $errorMsg
     }
 
-    $testOutput = Get-Content -Path $tempOutputFile -Raw -ErrorAction SilentlyContinue
-    Remove-Item $tempOutputFile -ErrorAction SilentlyContinue
+    $stdout = Get-Content -Path $stdoutFile -Raw -ErrorAction SilentlyContinue
+    $stderr = Get-Content -Path $stderrFile -Raw -ErrorAction SilentlyContinue
+    $testOutput = "$stdout`n$stderr"
+    Remove-Item $stdoutFile, $stderrFile -ErrorAction SilentlyContinue
     Write-Host "ℹ️ Вывод xray.exe: $testOutput"
     if ($testOutput -match "error" -or $testOutput -match "failed") {
         throw "Обнаружена ошибка в выводе xray.exe: $testOutput"
@@ -216,6 +246,15 @@ try {
     Start-Service -Name $ServiceName -ErrorAction Stop
     Write-Host "✅ Служба успешно создана и запущена"
 
+    # Открытие порта в брандмауэре
+    Write-Host "🔧 Открытие порта $port в брандмауэре..."
+    try {
+        New-NetFirewallRule -Name "XraySocks_$port" -DisplayName "Xray Socks Port $port" -Direction Inbound -Protocol TCP -LocalPort $port -Action Allow -ErrorAction Stop | Out-Null
+    }
+    catch {
+        Write-Host "⚠️ Не удалось открыть порт $port в брандмауэре: $_" -ForegroundColor Yellow
+    }
+
     $connectionInfo = @"
 === Параметры подключения ===
 Сервер: $(hostname)
@@ -245,7 +284,7 @@ xray socks -inbound `"socks://$socksUsername`:$socksPassword@:$port`" -outbound 
     Write-Host "Логин: $socksUsername"
     Write-Host "Пароль: $socksPassword"
     Write-Host "`nМожете отсканировать QR-код из файла keys.txt для быстрого подключения"
-    Write-Host "`n⚠️ Проверьте, что брандмауэр Windows и антивирус не блокируют порт $port и xray.exe."
+    Write-Host "`n⚠️ Проверьте, что антивирус не блокирует xray.exe."
 }
 catch {
     Save-DebugLog -ErrorMessage $_.Exception.Message -ConfigPath $configPath -XrayLogPath $LogFile
