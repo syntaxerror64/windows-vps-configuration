@@ -1,4 +1,4 @@
-# Установка и настройка Xray + Reality с автозапуском
+# Установка и настройка Xray + Socks с автозапуском
 
 $ErrorActionPreference = "Stop"
 
@@ -68,16 +68,8 @@ try {
     $LogFile = Join-Path $InstallDir "xray.log"
     $configPath = Join-Path $InstallDir "config.json"
 
-    $popularDomains = @(
-        "www.google.com",
-        "www.microsoft.com",
-        "www.cloudflare.com",
-        "www.github.com",
-        "www.amazon.com"
-    )
-
     Write-Host "=============================================="
-    Write-Host "🚀 Начало установки Xray + Reality"
+    Write-Host "🚀 Начало установки Xray + Socks"
     Write-Host "=============================================="
 
     if (-Not (Test-Path $InstallDir)) {
@@ -106,39 +98,16 @@ try {
         return $password
     }
 
-    function Generate-RandomShortId {
-        $bytes = New-Object Byte[] 4
-        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-        return [System.BitConverter]::ToString($bytes).Replace("-", "").Substring(0, 8).ToLower()
-    }
-
-    function Generate-Keys {
-        Write-Host "🔑 Генерация ключей..."
-        $result = & $XrayExe x25519
-        $publicKey = ($result | Select-String "Public key" | ForEach-Object { $_.ToString().Split(":")[1].Trim() })
-        $privateKey = ($result | Select-String "Private key" | ForEach-Object { $_.ToString().Split(":")[1].Trim() })
-        if (-not $publicKey -or -not $privateKey) {
-            throw "Не удалось сгенерировать ключи"
-        }
-        return @{Public=$publicKey; Private=$privateKey}
-    }
-
     Write-Host "`n🔐 Введите учетные данные для SOCKS-подключения"
     $socksUsername = Read-Host "Введите логин"
     $socksPassword = Generate-RandomPassword
     Write-Host "🔑 Сгенерирован случайный пароль: $socksPassword"
 
-    $serverName = $popularDomains | Get-Random
-    $shortId = Generate-RandomShortId
     $port = Get-Random -Minimum 20000 -Maximum 60000
     $uuid = [guid]::NewGuid().ToString()
 
     Write-Host "`n🛠️ Генерация параметров подключения:"
     Write-Host "  - Порт: $port"
-    Write-Host "  - ServerName: $serverName"
-    Write-Host "  - ShortID: $shortId"
-
-    $keys = Generate-Keys
 
     $escapedLogFile = $LogFile -replace '\\', '\\\\'
 
@@ -169,17 +138,7 @@ try {
       },
       "streamSettings": {
         "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "dest": "$serverName:443",
-          "serverNames": ["$serverName"],
-          "privateKey": "$($keys.Private)",
-          "publicKey": "$($keys.Public)",
-          "shortIds": ["$shortId"],
-          "fingerprint": "chrome",
-          "maxTimeDiff": 0,
-          "strict": true
-        }
+        "security": "none"
       }
     }
   ],
@@ -227,7 +186,7 @@ try {
     $binPath = "`"$XrayExe`" run -c `"$configPath`""
     New-Service -Name $ServiceName `
                 -BinaryPathName $binPath `
-                -DisplayName "Xray Reality Service" `
+                -DisplayName "Xray Socks Service" `
                 -StartupType Automatic `
                 -ErrorAction Stop | Out-Null
 
@@ -247,12 +206,9 @@ try {
 Протокол: socks
 Логин: $socksUsername
 Пароль: $socksPassword
-ShortID: $shortId
-ServerName: $serverName
-PublicKey: $($keys.Public)
 
 === QR-код для клиента ===
-socks://$socksUsername`:$socksPassword@$(hostname)`:$port#XrayReality
+socks://$socksUsername`:$socksPassword@$(hostname)`:$port#XraySocks
 
 === Команда для Linux-клиента ===
 xray socks -inbound `"socks://$socksUsername`:$socksPassword@:$port`" -outbound `"outbound= freedom`"
