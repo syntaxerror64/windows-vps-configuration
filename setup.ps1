@@ -35,7 +35,28 @@ function Ensure-Winget {
         }
         Write-Status "✅ Winget установлен." Green
     } else {
-        Write-Status "✅ Winget уже установлен."
+        Write-Status "✅ Winget уже установлен." Green
+    }
+}
+
+function Install-Chocolatey {
+    Write-Status "`n🍫 Устанавливаем Chocolatey..." Cyan
+    try {
+        if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+            Set-ExecutionPolicy Bypass -Scope Process -Force
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+            iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+            Start-Sleep -Seconds 5
+            if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+                Write-Status "❌ Не удалось установить Chocolatey." Red
+                exit 1
+            }
+            Write-Status "✅ Chocolatey установлен." Green
+        } else {
+            Write-Status "✅ Chocolatey уже установлен." Green
+        }
+    } catch {
+        Write-Status "❌ Ошибка установки Chocolatey: $_" Red
     }
 }
 
@@ -59,6 +80,19 @@ function Install-Apps {
         }
     }
 
+    # Установка MEGAsync
+    Write-Status "`n⬇️ Устанавливаем MEGAsync..." Cyan
+    try {
+        $megaUrl = "https://mega.nz/MEGAsyncSetup64.exe"
+        $megaInstaller = "$env:TEMP\MEGAsyncSetup64.exe"
+        Invoke-WebRequest -Uri $megaUrl -OutFile $megaInstaller
+        Start-Process -FilePath $megaInstaller -Args "/S" -Wait
+        Remove-Item $megaInstaller -Force -ErrorAction SilentlyContinue
+        Write-Status "✅ MEGAsync установлен." Green
+    } catch {
+        Write-Status "❌ Ошибка установки MEGAsync: $_" Red
+    }
+
     # Альтернативный метод установки VS Code через прямое скачивание
     Write-Status "`n⬇️ Устанавливаем Visual Studio Code (альтернативный метод)..." Cyan
     try {
@@ -77,7 +111,8 @@ function Install-Apps {
 
 function Show-HiddenFiles {
     Write-Status "`n🛠️ Включаем отображение скрытых файлов..." Cyan
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name Hidden -Value 1
+    Set-ItemProperty -Path "HKCU:\Software\Microso
+System: ft\Windows\CurrentVersion\Explorer\Advanced" -Name Hidden -Value 1
     Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name ShowSuperHidden -Value 1
     Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
     Start-Process explorer.exe
@@ -142,11 +177,12 @@ function Show-Menu {
     Write-Host "`n📋 Выберите режим работы скрипта:" -ForegroundColor Cyan
     Write-Host "1. 🧰 Установить и настроить всё"
     Write-Host "2. 🔧 Выполнить только одну задачу"
-    Write-Host "3. ✅ Выбрать несколько задач"
+    Write-Host "3. ✅ Выберите несколько задач"
     $choice = Read-Host "`nВведите номер (1-3)"
 
     switch ($choice) {
         '1' {
+            Install-Chocolatey
             Ensure-Winget
             Show-HiddenFiles
             Install-Apps
@@ -169,49 +205,53 @@ function Show-Menu {
 
 function Show-SingleTaskMenu {
     Write-Host "`n🔧 Выберите задачу:" -ForegroundColor Cyan
-    Write-Host "1. Установить Winget"
-    Write-Host "2. Показать скрытые файлы"
-    Write-Host "3. Установить программы"
-    Write-Host "4. Установить русский язык"
-    Write-Host "5. Отключить UAC"
-    Write-Host "6. Выполнить debloat"
-    Write-Host "7. Установить WSL с Ubuntu"
+    Write-Host "1. Установить Chocolatey"
+    Write-Host "2. Установить Winget"
+    Write-Host "3. Показать скрытые файлы"
+    Write-Host "4. Установить программы"
+    Write-Host "5. Установить русский язык"
+    Write-Host "6. Отключить UAC"
+    Write-Host "7. Выполнить debloat"
+    Write-Host "8. Установить WSL с Ubuntu"
 
-    $task = Read-Host "Введите номер (1-7)"
+    $task = Read-Host "Введите номер (1-8)"
     switch ($task) {
-        '1' { Ensure-Winget }
-        '2' { Show-HiddenFiles }
-        '3' { Install-Apps }
-        '4' { Set-RussianLanguage }
-        '5' { Disable-UAC }
-        '6' { Run-Debloat }
-        '7' { Install-WSL }
+        '1' { Install-Chocolatey }
+        '2' { Ensure-Winget }
+        '3' { Show-HiddenFiles }
+        '4' { Install-Apps }
+        '5' { Set-RussianLanguage }
+        '6' { Disable-UAC }
+        '7' { Run-Debloat }
+        '8' { Install-WSL }
         default { Write-Status "Неверный выбор" Red }
     }
 }
 
 function Show-MultiTaskMenu {
     Write-Host "`n✅ Укажите номера задач через запятую (например: 1,3,5):" -ForegroundColor Cyan
-    Write-Host "1. Установить Winget"
-    Write-Host "2. Показать скрытые файлы"
-    Write-Host "3. Установить программы"
-    Write-Host "4. Установить русский язык"
-    Write-Host "5. Отключить UAC"
-    Write-Host "6. Выполнить debloat"
-    Write-Host "7. Установить WSL с Ubuntu"
+    Write-Host "1. Установить Chocolatey"
+    Write-Host "2. Установить Winget"
+    Write-Host "3. Показать скрытые файлы"
+    Write-Host "4. Установить программы"
+    Write-Host "5. Установить русский язык"
+    Write-Host "6. Отключить UAC"
+    Write-Host "7. Выполнить debloat"
+    Write-Host "8. Установить WSL с Ubuntu"
 
     $input = Read-Host "Введите номера"
     $tasks = $input -split ',' | ForEach-Object { $_.Trim() }
 
     foreach ($task in $tasks) {
         switch ($task) {
-            '1' { Ensure-Winget }
-            '2' { Show-HiddenFiles }
-            '3' { Install-Apps }
-            '4' { Set-RussianLanguage }
-            '5' { Disable-UAC }
-            '6' { Run-Debloat }
-            '7' { Install-WSL }
+            '1' { Install-Chocolatey }
+            '2' { Ensure-Winget }
+            '3' { Show-HiddenFiles }
+            '4' { Install-Apps }
+            '5' { Set-RussianLanguage }
+            '6' { Disable-UAC }
+            '7' { Run-Debloat }
+            '8' { Install-WSL }
             default { Write-Status "Неверный номер задачи: $task" Red }
         }
     }
