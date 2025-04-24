@@ -1,13 +1,13 @@
+# Установка и настройка Xray + Reality с автозапуском
+
 $ErrorActionPreference = "Stop"
 
-# Проверка прав администратора
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     Write-Host "❌ Скрипт должен быть запущен с правами администратора!" -ForegroundColor Red
     exit 1
 }
 
-# Конфигурационные параметры
 $InstallDir = "C:\Program Files\XrayReality"
 $XrayUrl = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
 $ServiceName = "XrayRealityService"
@@ -16,7 +16,6 @@ $KeysFile = Join-Path $DesktopPath "keys.txt"
 $ZipPath = "$env:TEMP\Xray.zip"
 $LogFile = Join-Path $InstallDir "xray.log"
 
-# Список популярных доменов для Reality
 $popularDomains = @(
     "www.google.com",
     "www.microsoft.com",
@@ -29,7 +28,6 @@ Write-Host "=============================================="
 Write-Host "🚀 Начало установки Xray + Reality"
 Write-Host "=============================================="
 
-# Создание директории для установки
 if (-Not (Test-Path $InstallDir)) {
     Write-Host "📂 Создание директории для установки: $InstallDir"
     try {
@@ -41,7 +39,6 @@ if (-Not (Test-Path $InstallDir)) {
     }
 }
 
-# Скачивание и распаковка Xray
 Write-Host "⬇️ Скачивание Xray..."
 try {
     Invoke-WebRequest -Uri $XrayUrl -OutFile $ZipPath -ErrorAction Stop
@@ -55,7 +52,6 @@ catch {
     exit 1
 }
 
-# Поиск xray.exe во вложенных директориях
 Write-Host "🔍 Поиск xray.exe в директории $InstallDir..."
 try {
     $XrayExe = Get-ChildItem -Path $InstallDir -Recurse -Include "xray.exe" -ErrorAction Stop | Select-Object -First 1 -ExpandProperty FullName
@@ -99,13 +95,11 @@ function Generate-Keys {
     }
 }
 
-# Запрос логина и автоматическая генерация пароля для SOCKS
 Write-Host "`n🔐 Введите учетные данные для SOCKS-подключения"
 $socksUsername = Read-Host "Введите логин"
 $socksPassword = Generate-RandomPassword
 Write-Host "🔑 Сгенерирован случайный пароль: $socksPassword"
 
-# Автоматическая генерация параметров
 $serverName = $popularDomains | Get-Random
 $shortId = Generate-RandomShortId
 $port = Get-Random -Minimum 20000 -Maximum 60000
@@ -116,13 +110,10 @@ Write-Host "  - Порт: $port"
 Write-Host "  - ServerName: $serverName"
 Write-Host "  - ShortID: $shortId"
 
-# Генерация ключей
 $keys = Generate-Keys
 
-# Экранирование пути к лог-файлу для JSON
 $escapedLogFile = $LogFile -replace '\\', '\\\\'
 
-# Генерация конфигурации JSON
 $configJson = @"
 {
   "log": {
@@ -171,11 +162,9 @@ $configJson = @"
 }
 "@
 
-# Проверка корректности JSON и сохранение в UTF-8 без BOM
 $configPath = Join-Path $InstallDir "config.json"
 try {
     $configJson | ConvertFrom-Json -ErrorAction Stop | Out-Null
-    # Сохранение файла в UTF-8 без BOM
     [System.IO.File]::WriteAllText($configPath, $configJson, [System.Text.UTF8Encoding]::new($false))
     Write-Host "✅ Конфигурационный файл успешно создан: $configPath"
 }
@@ -184,7 +173,6 @@ catch {
     exit 1
 }
 
-# Тестирование запуска xray.exe с конфигурацией
 Write-Host "🔍 Тестирование запуска xray.exe..."
 try {
     $testOutput = & $XrayExe run -c $configPath 2>&1
@@ -198,10 +186,8 @@ catch {
     exit 1
 }
 
-# Создание службы Windows
 Write-Host "🛠️ Создание службы Windows..."
 try {
-    # Проверка и удаление существующей службы
     $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($service) {
         Write-Host "🗑️ Удаление существующей службы $ServiceName..."
@@ -216,7 +202,6 @@ try {
         Start-Sleep -Seconds 2
     }
 
-    # Создание службы
     $binPath = "`"$XrayExe`" run -c `"$configPath`""
     New-Service -Name $ServiceName `
                 -BinaryPathName $binPath `
@@ -224,13 +209,11 @@ try {
                 -StartupType Automatic `
                 -ErrorAction Stop | Out-Null
 
-    # Настройка автоматического перезапуска при сбоях
     & sc.exe failure $ServiceName reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Не удалось настроить параметры перезапуска службы"
     }
 
-    # Запуск службы
     Write-Host "🚀 Запуск службы $ServiceName..."
     Start-Service -Name $ServiceName -ErrorAction Stop
     Write-Host "✅ Служба успешно создана и запущена"
@@ -241,7 +224,6 @@ catch {
     exit 1
 }
 
-# Сохранение данных подключения
 $connectionInfo = @"
 === Параметры подключения ===
 Сервер: $(hostname)
@@ -261,7 +243,6 @@ xray socks -inbound `"socks://$socksUsername`:$socksPassword@:$port`" -outbound 
 "@
 
 try {
-    # Сохранение файла в UTF-8 без BOM
     [System.IO.File]::WriteAllText($KeysFile, $connectionInfo, [System.Text.UTF8Encoding]::new($false))
     Write-Host "✅ Параметры подключения сохранены в файл: $KeysFile"
 }
