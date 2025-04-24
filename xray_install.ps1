@@ -2,12 +2,63 @@
 
 $ErrorActionPreference = "Stop"
 
+# Функция для сохранения лога отладки
+function Save-DebugLog {
+    param (
+        [string]$ErrorMessage,
+        [string]$ConfigPath,
+        [string]$XrayLogPath
+    )
+    $DebugLogPath = Join-Path ([Environment]::GetFolderPath("Desktop")) "debug_log.txt"
+    $DebugContent = @"
+=== Debug Log ===
+Timestamp: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+Error Message: $ErrorMessage
+
+=== Contents of config.json ===
+$(if (Test-Path $ConfigPath) { Get-Content -Path $ConfigPath -Raw } else { "config.json not found" })
+
+=== Contents of xray.log ===
+$(if (Test-Path $XrayLogPath) { Get-Content -Path $XrayLogPath -Raw } else { "xray.log not found" })
+
+=== Windows Event Log for XrayRealityService ===
+"@
+    try {
+        $events = Get-WinEvent -FilterHashtable @{
+            LogName = 'System'
+            ProviderName = 'Service Control Manager'
+            Level = 2,3
+            StartTime = (Get-Date).AddHours(-1)
+        } -ErrorAction SilentlyContinue | Where-Object { $_.Message -like "*XrayRealityService*" } | ForEach-Object {
+            "Time: $($_.TimeCreated)`nID: $($_.Id)`nMessage: $($_.Message)`n---"
+        }
+        if ($events) {
+            $DebugContent += $events -join "`n"
+        } else {
+            $DebugContent += "No relevant events found in System log for XrayRealityService"
+        }
+    }
+    catch {
+        $DebugContent += "Failed to retrieve Windows Event Log: $_"
+    }
+    try {
+        [System.IO.File]::WriteAllText($DebugLogPath, $DebugContent, [System.Text.UTF8Encoding]::new($false))
+        Write-Host "📝 Лог отладки сохранен: $DebugLogPath" -ForegroundColor Yellow
+    }
+    catch {
+        Write-Host "❌ Ошибка при сохранении лога отладки: $_" -ForegroundColor Red
+    }
+}
+
+# Проверка прав администратора
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     Write-Host "❌ Скрипт должен быть запущен с правами администратора!" -ForegroundColor Red
+    Save-DebugLog -ErrorMessage "Script not run as administrator" -ConfigPath $configPath -XrayLogPath $LogFile
     exit 1
 }
 
+# Конфигурационные параметры
 $InstallDir = "C:\Program Files\XrayReality"
 $XrayUrl = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
 $ServiceName = "XrayRealityService"
@@ -35,6 +86,7 @@ if (-Not (Test-Path $InstallDir)) {
     }
     catch {
         Write-Host "❌ Ошибка при создании директории ${InstallDir}: $_" -ForegroundColor Red
+        Save-DebugLog -ErrorMessage "Failed to create directory: $_" -ConfigPath $configPath -XrayLogPath $LogFile
         exit 1
     }
 }
@@ -49,6 +101,7 @@ try {
 }
 catch {
     Write-Host "❌ Ошибка при скачивании или распаковке Xray: $_" -ForegroundColor Red
+    Save-DebugLog -ErrorMessage "Failed to download or extract Xray: $_" -ConfigPath $configPath -XrayLogPath $LogFile
     exit 1
 }
 
@@ -62,6 +115,7 @@ try {
 }
 catch {
     Write-Host "❌ Ошибка при поиске xray.exe: $_" -ForegroundColor Red
+    Save-DebugLog -ErrorMessage "Failed to find xray.exe: $_" -ConfigPath $configPath -XrayLogPath $LogFile
     exit 1
 }
 
@@ -91,6 +145,7 @@ function Generate-Keys {
     }
     catch {
         Write-Host "❌ Ошибка при генерации ключей: $_" -ForegroundColor Red
+        Save-DebugLog -ErrorMessage "Failed to generate keys: $_" -ConfigPath $configPath -XrayLogPath $LogFile
         exit 1
     }
 }
@@ -148,7 +203,10 @@ $configJson = @"
           "xver": 0,
           "serverNames": ["$serverName"],
           "privateKey": "$($keys.Private)",
-          "shortIds": ["$shortId"]
+          "publicKey": "$($keys.Public)",
+          "shortIds": ["$shortId"],
+          "maxTimeDiff": 0,
+          "strict": true
         }
       }
     }
@@ -170,6 +228,7 @@ try {
 }
 catch {
     Write-Host "❌ Ошибка в формате JSON конфигурации: $_" -ForegroundColor Red
+    Save-DebugLog -ErrorMessage "JSON configuration error: $_" -ConfigPath $configPath -XrayLogPath $LogFile
     exit 1
 }
 
@@ -177,12 +236,13 @@ Write-Host "🔍 Тестирование запуска xray.exe..."
 try {
     $testOutput = & $XrayExe run -c $configPath 2>&1
     Write-Host "ℹ️ Вывод xray.exe: $testOutput"
-    if ($testOutput -match "error") {
-        throw "Обнаружена ошибка в выводе xray.exe"
+    if ($testOutput -match "error" -or $testOutput -match "failed") {
+        throw "Обнаружена ошибка в выводе xray.exe: $testOutput"
     }
 }
 catch {
     Write-Host "❌ Ошибка при тестовом запуске xray.exe: $_" -ForegroundColor Red
+    Save-DebugLog -ErrorMessage "Xray test run failed: $_" -ConfigPath $configPath -XrayLogPath $LogFile
     exit 1
 }
 
@@ -221,6 +281,7 @@ try {
 catch {
     Write-Host "❌ Ошибка при создании или запуске службы: $_" -ForegroundColor Red
     Write-Host "ℹ️ Проверьте журнал событий Windows (eventvwr) и лог-файл $LogFile для дополнительной информации."
+    Save-DebugLog -ErrorMessage "Service creation or start failed: $_" -ConfigPath $configPath -XrayLogPath $LogFile
     exit 1
 }
 
@@ -248,6 +309,7 @@ try {
 }
 catch {
     Write-Host "❌ Ошибка при сохранении параметров подключения: $_" -ForegroundColor Red
+    Save-DebugLog -ErrorMessage "Failed to save connection info: $_" -ConfigPath $configPath -XrayLogPath $LogFile
     exit 1
 }
 
