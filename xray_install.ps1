@@ -1,5 +1,3 @@
-# Установка и настройка Xray + Reality с автозапуском
-
 $ErrorActionPreference = "Stop"
 
 # Проверка прав администратора
@@ -155,7 +153,7 @@ $configJson = @"
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "$serverName`:443",
+          "dest": "$serverName:443",
           "xver": 0,
           "serverNames": ["$serverName"],
           "privateKey": "$($keys.Private)",
@@ -173,11 +171,12 @@ $configJson = @"
 }
 "@
 
-# Проверка корректности JSON и сохранение
+# Проверка корректности JSON и сохранение в UTF-8 без BOM
 $configPath = Join-Path $InstallDir "config.json"
 try {
     $configJson | ConvertFrom-Json -ErrorAction Stop | Out-Null
-    Set-Content -Path $configPath -Value $configJson -Encoding UTF8 -ErrorAction Stop
+    # Сохранение файла в UTF-8 без BOM
+    [System.IO.File]::WriteAllText($configPath, $configJson, [System.Text.UTF8Encoding]::new($false))
     Write-Host "✅ Конфигурационный файл успешно создан: $configPath"
 }
 catch {
@@ -262,7 +261,8 @@ xray socks -inbound `"socks://$socksUsername`:$socksPassword@:$port`" -outbound 
 "@
 
 try {
-    Set-Content -Path $KeysFile -Value $connectionInfo -Encoding UTF8 -ErrorAction Stop
+    # Сохранение файла в UTF-8 без BOM
+    [System.IO.File]::WriteAllText($KeysFile, $connectionInfo, [System.Text.UTF8Encoding]::new($false))
     Write-Host "✅ Параметры подключения сохранены в файл: $KeysFile"
 }
 catch {
