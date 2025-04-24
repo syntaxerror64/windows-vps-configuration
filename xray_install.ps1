@@ -79,7 +79,8 @@ function Get-XrayBinary {
     $Timer = [System.Diagnostics.Stopwatch]::StartNew()
     Invoke-WebRequest -Uri $XrayUrl -OutFile $ZipPath -UseBasicParsing -TimeoutSec 30
     $Timer.Stop()
-    Write-Host "✅ Загрузка завершена ($([math]::Round($Timer.Elapsed.TotalSeconds, 2)) сек.)" -ForegroundColor Green
+    $time = [math]::Round($Timer.Elapsed.TotalSeconds, 2)
+    Write-Host "✅ Загрузка завершена ($time сек.)" -ForegroundColor Green
     
     Write-Host "Распаковка архива..." -ForegroundColor Green
     Expand-Archive -Path $ZipPath -DestinationPath $InstallDir -Force
