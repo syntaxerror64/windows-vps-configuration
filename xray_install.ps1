@@ -103,6 +103,20 @@ function Get-UserInput {
     } while ($true)
 }
 
+# Проверка JSON (альтернатива Test-Json для PowerShell 5.1)
+function Test-JsonContent {
+    param (
+        [string]$JsonString
+    )
+    try {
+        $null = [System.Web.Script.Serialization.JavaScriptSerializer]::new().DeserializeObject($JsonString)
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
 # Генерация конфигурации
 function New-XrayConfig {
     param (
@@ -130,7 +144,7 @@ function New-XrayConfig {
     "outbounds": [{"protocol": "freedom", "settings": {}}]
 }
 "@
-    if (-not (Test-Json $ConfigJson -ErrorAction SilentlyContinue)) {
+    if (-not (Test-JsonContent -JsonString $ConfigJson)) {
         throw "Ошибка в JSON конфигурации."
     }
     [System.IO.File]::WriteAllText($ConfigPath, $ConfigJson, [System.Text.Encoding]::UTF8)
