@@ -16,6 +16,7 @@ $ServiceName = "XrayRealityService"
 $DesktopPath = [Environment]::GetFolderPath("Desktop")
 $KeysFile = Join-Path $DesktopPath "keys.txt"
 $ZipPath = "$env:TEMP\Xray.zip"
+$LogFile = Join-Path $InstallDir "xray.log"
 
 # Список популярных доменов для Reality
 $popularDomains = @(
@@ -59,6 +60,14 @@ if (-Not $XrayExe) {
 }
 Write-Host "✅ Найден xray.exe: $XrayExe"
 
+# Генерация случайного пароля для SOCKS
+function Generate-RandomPassword {
+    $length = 12
+    $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()"
+    $password = -join (1..$length | ForEach-Object { $chars[(Get-Random -Minimum 0 -Maximum $chars.Length)] })
+    return $password
+}
+
 function Generate-RandomShortId {
     $bytes = New-Object Byte[] 4
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
@@ -82,11 +91,11 @@ function Generate-Keys {
     }
 }
 
-# Запрос только логина и пароля для SOCKS
+# Запрос логина и автоматическая генерация пароля для SOCKS
 Write-Host "`n🔐 Введите учетные данные для SOCKS-подключения"
 $socksUsername = Read-Host "Введите логин"
-$socksPassword = Read-Host "Введите пароль" -AsSecureString
-$socksPassword = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($socksPassword))
+$socksPassword = Generate-RandomPassword
+Write-Host "🔑 Сгенерирован случайный пароль: $socksPassword"
 
 # Автоматическая генерация параметров
 $serverName = $popularDomains | Get-Random
@@ -105,7 +114,9 @@ $keys = Generate-Keys
 $configJson = @"
 {
   "log": {
-    "loglevel": "warning"
+    "loglevel": "warning",
+    "access": "$LogFile",
+    "error": "$LogFile"
   },
   "inbounds": [
     {
@@ -165,6 +176,9 @@ Write-Host "🔍 Тестирование запуска xray.exe..."
 try {
     $testOutput = & $XrayExe run -c $configPath 2>&1
     Write-Host "ℹ️ Вывод xray.exe: $testOutput"
+    if ($testOutput -match "error") {
+        throw "Обнаружена ошибка в выводе xray.exe"
+    }
 }
 catch {
     Write-Host "❌ Ошибка при тестовом запуске xray.exe: $_" -ForegroundColor Red
@@ -175,10 +189,17 @@ catch {
 Write-Host "🛠️ Создание службы Windows..."
 try {
     # Проверка и удаление существующей службы
-    if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+    $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($service) {
         Write-Host "🗑️ Удаление существующей службы $ServiceName..."
-        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+        if ($service.Status -eq "Running") {
+            Stop-Service -Name $ServiceName -Force -ErrorAction Stop
+            Start-Sleep -Seconds 2
+        }
         & sc.exe delete $ServiceName | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Не удалось удалить службу $ServiceName"
+        }
         Start-Sleep -Seconds 2
     }
 
@@ -200,7 +221,7 @@ try {
 }
 catch {
     Write-Host "❌ Ошибка при создании или запуске службы: $_" -ForegroundColor Red
-    Write-Host "ℹ️ Проверьте журнал событий Windows (eventvwr) для дополнительной информации."
+    Write-Host "ℹ️ Проверьте журнал событий Windows (eventvwr) и лог-файл $LogFile для дополнительной информации."
     exit 1
 }
 
