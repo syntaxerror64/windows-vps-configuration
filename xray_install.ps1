@@ -43,7 +43,9 @@ function Write-DebugLog {
             "PSVersion: $($PSVersionTable.PSVersion)",
             "User: $([Environment]::UserName)",
             "Config: $(if (Test-Path $ConfigPath) { Get-Content $ConfigPath -Raw } else { 'N/A' })",
-            "Service: $(Get-Service $ServiceName -ErrorAction SilentlyContinue | Format-List | Out-String)"
+            "Service: $(Get-Service $ServiceName -ErrorAction SilentlyContinue | Format-List | Out-String)",
+            "XrayExe: $(if (Test-Path $script:XrayExe) { $script:XrayExe } else { 'Not found' })",
+            "XrayLog: $(if (Test-Path $LogFile) { Get-Content $LogFile -Raw } else { 'Not found' })"
         )
         [System.IO.File]::WriteAllText($DebugLogPath, ($DebugInfo -join "`n"), [System.Text.Encoding]::UTF8)
         Write-Host "Отладочный лог сохранен: $DebugLogPath" -ForegroundColor Yellow
@@ -103,7 +105,7 @@ function Get-UserInput {
     } while ($true)
 }
 
-# Проверка JSON (альтернатива Test-Json для PowerShell 5.1)
+# Проверка JSON (для PowerShell 5.1 и новее)
 function Test-JsonContent {
     param (
         [string]$JsonString
@@ -152,24 +154,45 @@ function New-XrayConfig {
 
 # Настройка службы
 function Install-XrayService {
+    Write-Host "Проверка пути к xray.exe: $script:XrayExe" -ForegroundColor Yellow
+    if (-not (Test-Path $script:XrayExe)) {
+        throw "Файл xray.exe не найден по пути: $script:XrayExe"
+    }
+    
+    Write-Host "Проверка конфигурации: $ConfigPath" -ForegroundColor Yellow
+    if (-not (Test-Path $ConfigPath)) {
+        throw "Файл конфигурации не найден по пути: $ConfigPath"
+    }
+    
     $ServiceArgs = "run -c `"$ConfigPath`""
+    $BinaryPath = "`"$script:XrayExe`" $ServiceArgs"
+    Write-Host "Создание службы с BinaryPathName: $BinaryPath" -ForegroundColor Yellow
+    
     $ServiceParams = @{
         Name           = $ServiceName
-        BinaryPathName = "`"$XrayExe`" $ServiceArgs"
+        BinaryPathName = $BinaryPath
         DisplayName    = "Xray Reality Service"
         StartupType    = "Automatic"
         Description    = "Xray SOCKS5 Proxy Service"
     }
     
     if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
+        Write-Host "Удаление существующей службы..." -ForegroundColor Yellow
         Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue
         & sc.exe delete $ServiceName | Out-Null
+        Start-Sleep -Seconds 2
     }
     
-    New-Service @ServiceParams | Out-Null
-    sc.exe failure $ServiceName reset= 0 actions= restart/5000 | Out-Null
-    Start-Service $ServiceName
-    Write-Host "Служба успешно запущена" -ForegroundColor Green
+    try {
+        New-Service @ServiceParams | Out-Null
+        sc.exe failure $ServiceName reset= 0 actions= restart/5000 | Out-Null
+        Write-Host "Запуск службы..." -ForegroundColor Yellow
+        Start-Service $ServiceName -ErrorAction Stop
+        Write-Host "Служба успешно запущена" -ForegroundColor Green
+    }
+    catch {
+        throw "Ошибка при создании или запуске службы: $_"
+    }
 }
 
 # Настройка брандмауэра
