@@ -257,7 +257,7 @@ function Show-Menu {
             Show-MultiTaskMenu
         }
         default {
-            Write-Status "Неверный выбор. Завершение." Red
+            Write-Status "❌ Неверный выбор. Завершение." Red
         }
     }
 }
@@ -274,31 +274,65 @@ function Show-SingleTaskMenu {
     Write-Host "8. Установить WSL с Ubuntu"
 
     $task = Read-Host "Введите номер (1-8)"
+    Write-Status "`n🔍 Выбрана задача: $task" Yellow # Debugging output
     switch ($task) {
-        '1' { Install-Chocolatey }
-        '2' { Ensure-Winget }
-        '3' { Show-HiddenFiles }
+        '1' { 
+            Write-Status "🚀 Выполняется установка Chocolatey..." Yellow
+            Install-Chocolatey 
+        }
+        '2' { 
+            Write-Status "🚀 Выполняется установка Winget..." Yellow
+            Ensure-Winget 
+        }
+        '3' { 
+            Write-Status "🚀 Выполняется настройка скрытых файлов..." Yellow
+            Show-HiddenFiles 
+        }
         '4' {
+            Write-Status "🚀 Переход к выбору режима установки программ..." Yellow
             Write-Host "`n📋 Выберите режим установки программ:" -ForegroundColor Cyan
             Write-Host "1. Установить все программы"
             Write-Host "2. Выбрать отдельные программы"
             $subChoice = Read-Host "`nВведите номер (1-2)"
+            Write-Status "🔍 Выбран режим: $subChoice" Yellow # Debugging output
             switch ($subChoice) {
-                '1' { Install-Apps }
-                '2' { Install-SelectedApps }
-                default { Write-Status "❌ Неверный выбор режима установки программ." Red }
+                '1' { 
+                    Write-Status "🚀 Установка всех программ..." Yellow
+                    Install-Apps 
+                }
+                '2' { 
+                    Write-Status "🚀 Переход к выбору отдельных программ..." Yellow
+                    Install-SelectedApps 
+                }
+                default { 
+                    Write-Status "❌ Неверный выбор режима установки программ: $subChoice" Red 
+                }
             }
         }
-        '5' { Set-RussianLanguage }
-        '6' { Disable-UAC }
-        '7' { Run-Debloat }
-        '8' { Install-WSL }
-        default { Write-Status "❌ Неверный выбор задачи." Red }
+        '5' { 
+            Write-Status "🚀 Выполняется настройка русского языка..." Yellow
+            Set-RussianLanguage 
+        }
+        '6' { 
+            Write-Status "🚀 Выполняется отключение UAC..." Yellow
+            Disable-UAC 
+        }
+        '7' { 
+            Write-Status "🚀 Выполняется debloat..." Yellow
+            Run-Debloat 
+        }
+        '8' { 
+            Write-Status "🚀 Выполняется установка WSL..." Yellow
+            Install-WSL 
+        }
+        default { 
+            Write-Status "❌ Неверный выбор задачи: $task" Red 
+        }
     }
 }
 
 function Show-MultiTaskMenu {
-    Write-Host "`n✅  ✅ Укажите номера задач через запятую (например: 1,3,5):" -ForegroundColor Cyan
+    Write-Host "`n✅ Укажите номера задач через запятую (например: 1,3,5):" -ForegroundColor Cyan
     Write-Host "1. Установить Chocolatey"
     Write-Host "2. Установить Winget"
     Write-Host "3. Показать скрытые файлы"
