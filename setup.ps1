@@ -55,12 +55,39 @@ function Run-Debloat {
     }
 }
 
+function Set-RussianLanguage {
+    Write-Host "`n🌍 Установка языка системы: русский и английский..." -ForegroundColor Cyan
+    try {
+        $LangList = New-WinUserLanguageList ru-RU
+        $LangList.Add("en-US")
+        Set-WinUserLanguageList $LangList -Force
+        Set-WinUILanguageOverride -Language "ru-RU"
+        Set-WinSystemLocale ru-RU
+        Set-Culture ru-RU
+        Write-Host "✅ Язык системы изменён. Требуется перезагрузка для полного применения." -ForegroundColor Green
+    } catch {
+        Write-Host "❌ Не удалось изменить языковые параметры: $_" -ForegroundColor Red
+    }
+}
+
+function Disable-UAC {
+    Write-Host "`n🔒 Отключение контроля UAC..." -ForegroundColor Cyan
+    try {
+        Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableLUA" -Value 0
+        Write-Host "✅ UAC отключён. Требуется перезагрузка для применения." -ForegroundColor Green
+    } catch {
+        Write-Host "❌ Не удалось отключить UAC: $_" -ForegroundColor Red
+    }
+}
+
 # Выполнение всех шагов
 Write-Host "📦 Старт установки и настройки окружения..." -ForegroundColor Cyan
 
 Ensure-Winget
 Show-HiddenFiles
 Install-Apps
+Set-RussianLanguage
+Disable-UAC
 Run-Debloat
 
-Write-Host "`n🎉 Все шаги завершены!" -ForegroundColor Green
+Write-Host "`n🎉 Все шаги завершены! Перезагрузите систему для применения всех изменений." -ForegroundColor Green
