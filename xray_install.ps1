@@ -1,331 +1,214 @@
+#Requires -Version 5
+#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-Установка Xray с SOCKS5 прокси и автоматической настройкой службы
+    Установка и настройка Xray с SOCKS5 прокси как службы Windows.
+
+.DESCRIPTION
+    Скрипт загружает, устанавливает и настраивает Xray с SOCKS5 прокси, создает службу,
+    настраивает брандмауэр и сохраняет информацию о подключении.
+
+.NOTES
+    Требуется PowerShell 5.0+ и права администратора.
+    Логи сохраняются в $env:TEMP, а отладочная информация — на рабочем столе.
 #>
 
-#region Initial Setup
+# Глобальные настройки
 $ErrorActionPreference = 'Stop'
 $WarningPreference = 'Continue'
 $DebugPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 
-# Запуск транскрипции для полного лога
-$TranscriptPath = Join-Path $env:TEMP "xray_install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
-Start-Transcript -Path $TranscriptPath -Append -ErrorAction Continue
-#endregion
+# Параметры установки
+$InstallDir = "C:\Program Files\XrayReality"
+$ServiceName = "XrayRealityService"
+$LogFile = Join-Path $InstallDir "xray.log"
+$ConfigPath = Join-Path $InstallDir "config.json"
+$XrayUrl = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
+$DesktopPath = [Environment]::GetFolderPath('Desktop')
+$KeysFile = Join-Path $DesktopPath "xray_connection_info.txt"
 
-#region Debug Functions
-function Save-DebugLog {
-    param(
-        [string]$ErrorMessage,
-        [string]$ConfigPath,
-        [string]$XrayLogPath
+# Функция логирования отладочной информации
+function Write-DebugLog {
+    param (
+        [Parameter(Mandatory)][string]$ErrorMessage
     )
-    
     try {
-        $DebugLogPath = Join-Path ([Environment]::GetFolderPath('Desktop')) "xray_debug_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
-        
+        $DebugLogPath = Join-Path $DesktopPath "xray_debug_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
         $DebugInfo = @(
-            "=== Debug Log ===",
+            "=== Debug Info ===",
             "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
-            "Error: $ErrorMessage`n",
-            "=== Environment ===",
+            "Error: $ErrorMessage",
             "OS: $((Get-CimInstance Win32_OperatingSystem).Caption)",
             "PSVersion: $($PSVersionTable.PSVersion)",
-            "Architecture: $([Environment]::Is64BitProcess ? 'x64' : 'x86')",
             "User: $([Environment]::UserName)",
-            "Admin: $([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)`n",
-            "=== Process Info ===",
-            (Get-Process -Id $PID | Format-List * | Out-String),
-            "=== Network Check ===",
-            (Test-NetConnection -ComputerName github.com -Port 443 -InformationLevel Detailed | Out-String)
+            "Config: $(if (Test-Path $ConfigPath) { Get-Content $ConfigPath -Raw } else { 'N/A' })",
+            "Service: $(Get-Service $ServiceName -ErrorAction SilentlyContinue | Format-List | Out-String)"
         )
-
-        if (Test-Path $ConfigPath) {
-            $DebugInfo += @(
-                "`n=== Config.json ===",
-                (Get-Content $ConfigPath -Raw),
-                "JSON Validation: $((Test-Json (Get-Content $ConfigPath -Raw) -ErrorAction SilentlyContinue) ? 'Valid' : 'Invalid')"
-            )
-        }
-
-        if (Test-Path $XrayLogPath) {
-            $DebugInfo += @(
-                "`n=== Xray Log ===",
-                (Get-Content $XrayLogPath -Raw)
-            )
-        }
-
-        $DebugInfo += @(
-            "`n=== Firewall Rules ===",
-            (Get-NetFirewallRule -Name "XraySocks_*" -ErrorAction SilentlyContinue | Format-Table -AutoSize | Out-String),
-            "`n=== Services ===",
-            (Get-Service "*Xray*" -ErrorAction SilentlyContinue | Format-Table -AutoSize | Out-String)
-        )
-
-        [System.IO.File]::WriteAllText($DebugLogPath, ($DebugInfo -join "`n"), [System.Text.Encoding]::UTF8)
-        Write-Host "Debug log saved: $DebugLogPath" -ForegroundColor Yellow
+        [System.IO.File]::WriteAllText($DebugLogPath, $DebugInfo -join "`n", [System.Text.Encoding]::UTF8)
+        Write-Host "Отладочный лог сохранен: $DebugLogPath" -ForegroundColor Yellow
     }
     catch {
-        Write-Host "Debug log error: $_" -ForegroundColor Red
+        Write-Host "Ошибка записи отладочного лога: $_" -ForegroundColor Red
     }
 }
-#endregion
 
-try {
-    #region Pre-Checks
-    # Проверка версии PowerShell
-    if ($PSVersionTable.PSVersion.Major -lt 5) {
-        throw "Требуется PowerShell 5 или новее. Текущая версия: $($PSVersionTable.PSVersion)"
+# Проверка предварительных условий
+function Test-Prerequisites {
+    if (-not (Test-NetConnection -ComputerName "github.com" -Port 443 -InformationLevel Quiet)) {
+        throw "Нет подключения к интернету."
     }
+    Write-Host "✅ Проверки окружения пройдены" -ForegroundColor Cyan
+}
 
-    # Проверка прав администратора
-    if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        throw "Запустите скрипт с правами администратора!"
-    }
-
-    # Проверка подключения к интернету
-    if (-not (Test-NetConnection -ComputerName github.com -Port 443 -InformationLevel Quiet)) {
-        throw "Нет подключения к интернету!"
-    }
-    #endregion
-
-    #region Configuration
-    $InstallDir = "C:\Program Files\XrayReality"
-    $XrayUrl = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
-    $ServiceName = "XrayRealityService"
-    $DesktopPath = [Environment]::GetFolderPath('Desktop')
-    $KeysFile = Join-Path $DesktopPath "xray_connection_info.txt"
-    $LogFile = Join-Path $InstallDir "xray.log"
-    $ConfigPath = Join-Path $InstallDir "config.json"
-    #endregion
-
-    Write-Host @"
-==============================================
-🚀 Xray + SOCKS5 Proxy Installer
-✅ Проверки окружения пройдены
-==============================================
-"@ -ForegroundColor Cyan
-
-    #region Cleanup
+# Очистка предыдущей установки
+function Remove-PreviousInstallation {
     if (Test-Path $InstallDir) {
         Write-Host "Очистка предыдущей установки..." -ForegroundColor Yellow
-        try {
-            Get-Service $ServiceName -ErrorAction Stop | Stop-Service -Force
-            Start-Sleep 2
-        }
-        catch { }
-        
-        Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction Stop
+        Get-Service $ServiceName -ErrorAction SilentlyContinue | Stop-Service -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Remove-Item -Path $InstallDir -Recurse -Force
     }
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-    #endregion
+}
 
-    #region Xray Download
+# Загрузка Xray
+function Get-XrayBinary {
+    $ZipPath = Join-Path $env:TEMP "xray-core.zip"
     Write-Host "Скачивание Xray..." -ForegroundColor Green
-    $ZipPath = "$env:TEMP\xray-core.zip"
+    $Timer = [System.Diagnostics.Stopwatch]::StartNew()
+    Invoke-WebRequest -Uri $XrayUrl -OutFile $ZipPath -UseBasicParsing -TimeoutSec 30
+    $Timer.Stop()
+    Write-Host "✅ Загрузка завершена ($([math]::Round($Timer.Elapsed.TotalSeconds, 2)) сек.)" -ForegroundColor Green
     
-    try {
-        $ProgressPreference = 'SilentlyContinue'
-        $DownloadTimer = [System.Diagnostics.Stopwatch]::StartNew()
-        
-        Invoke-WebRequest -Uri $XrayUrl -OutFile $ZipPath -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
-        
-        if (-not (Test-Path $ZipPath) -or (Get-Item $ZipPath).Length -eq 0) {
-            throw "Файл не был загружен"
-        }
-    }
-    catch {
-        throw "Ошибка загрузки: $_"
-    }
-    finally {
-        $ProgressPreference = 'Continue'
-        $DownloadTimer.Stop()
-    }
-
-    Write-Host "✅ Загрузка завершена ($([math]::Round($DownloadTimer.Elapsed.TotalSeconds,2)) сек.)" -ForegroundColor Green
-    #endregion
-
-    #region Xray Setup
     Write-Host "Распаковка архива..." -ForegroundColor Green
-    try {
-        Expand-Archive -Path $ZipPath -DestinationPath $InstallDir -Force
-        Remove-Item $ZipPath -ErrorAction SilentlyContinue
-        
-        $XrayExe = Get-ChildItem -Path $InstallDir -Recurse -Filter 'xray.exe' -File |
-                   Select-Object -First 1 -ExpandProperty FullName
-        
-        if (-not $XrayExe) {
-            throw "xray.exe не найден!"
-        }
-    }
-    catch {
-        throw "Ошибка распаковки: $_"
-    }
-    #endregion
-
-    #region User Input
-    function Get-ValidInput {
-        param(
-            [string]$Prompt,
-            [string]$Pattern,
-            [string]$ErrorMessage
-        )
-        
-        do {
-            $input = Read-Host $Prompt
-            if ($input -match $Pattern) { return $input }
-            Write-Host $ErrorMessage -ForegroundColor Red
-        } while ($true)
-    }
-
-    $socksUsername = Get-ValidInput -Prompt "Введите логин (a-z, 0-9, _, -)" `
-                                    -Pattern '^[a-zA-Z0-9_-]{3,20}$' `
-                                    -ErrorMessage "Некорректный логин!"
-
-    $socksPassword = -join ((33..126 | Get-Random -Count 16) | ForEach-Object { [char]$_ })
-    Write-Host "🔑 Сгенерирован пароль: $socksPassword" -ForegroundColor Cyan
-    #endregion
-
-    #region Port Selection
-    do {
-        $port = Get-Random -Minimum 20000 -Maximum 60000
-        $portInUse = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
-    } while ($portInUse)
-
-    Write-Host "Выбран порт: $port" -ForegroundColor Cyan
-    #endregion
-
-    #region Config Generation
-    $logPathEscaped = $LogFile.Replace('\', '/')
+    Expand-Archive -Path $ZipPath -DestinationPath $InstallDir -Force
+    Remove-Item $ZipPath -ErrorAction SilentlyContinue
     
-    $configJson = @"
+    $script:XrayExe = Get-ChildItem -Path $InstallDir -Filter "xray.exe" -Recurse -File | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $XrayExe) { throw "xray.exe не найден." }
+}
+
+# Получение пользовательских данных
+function Get-UserInput {
+    param (
+        [string]$Prompt = "Введите логин (a-z, 0-9, _, -, 3-20 символов)",
+        [string]$Pattern = '^[a-zA-Z0-9_-]{3,20}$'
+    )
+    do {
+        $input = Read-Host $Prompt
+        if ($input -match $Pattern) { return $input }
+        Write-Host "Некорректный ввод. Используйте a-z, 0-9, _, -, длина 3-20." -ForegroundColor Red
+    } while ($true)
+}
+
+# Генерация конфигурации
+function New-XrayConfig {
+    param (
+        [string]$Username,
+        [string]$Password,
+        [int]$Port
+    )
+    $LogPathEscaped = $LogFile.Replace('\', '/')
+    $ConfigJson = @"
 {
-  "log": {
-    "loglevel": "warning",
-    "access": "$logPathEscaped",
-    "error": "$logPathEscaped"
-  },
-  "inbounds": [{
-    "port": $port,
-    "protocol": "socks",
-    "settings": {
-      "auth": "password",
-      "accounts": [{
-        "user": "$($socksUsername -replace '"', '\"')",
-        "pass": "$($socksPassword -replace '"', '\"')"
-      }],
-      "udp": true
+    "log": {
+        "loglevel": "warning",
+        "access": "$LogPathEscaped",
+        "error": "$LogPathEscaped"
     },
-    "sniffing": {
-      "enabled": true,
-      "destOverride": ["http", "tls"]
-    }
-  }],
-  "outbounds": [{
-    "protocol": "freedom",
-    "settings": {}
-  }]
+    "inbounds": [{
+        "port": $Port,
+        "protocol": "socks",
+        "settings": {
+            "auth": "password",
+            "accounts": [{"user": "$Username", "pass": "$Password"}],
+            "udp": true
+        }
+    }],
+    "outbounds": [{"protocol": "freedom", "settings": {}}]
 }
 "@
+    if (-not (Test-Json $ConfigJson -ErrorAction SilentlyContinue)) { throw "Ошибка в JSON конфигурации." }
+    [System.IO.File]::WriteAllText($ConfigPath, $ConfigJson, [System.Text.Encoding]::UTF8)
+}
 
-    if (-not (Test-Json $configJson)) {
-        throw "Некорректная JSON конфигурация!"
-    }
-    
-    [System.IO.File]::WriteAllText($ConfigPath, $configJson, [System.Text.Encoding]::UTF8)
-    #endregion
-
-    #region Service Setup
-    $serviceArgs = @(
-        "run",
-        "-c", "`"$ConfigPath`"",
-        "-service"
-    )
-
-    $serviceParams = @{
+# Настройка службы
+function Install-XrayService {
+    $ServiceArgs = "run -c `"$ConfigPath`""
+    $ServiceParams = @{
         Name           = $ServiceName
-        BinaryPathName = "`"$XrayExe`" $($serviceArgs -join ' ')"
+        BinaryPathName = "`"$XrayExe`" $ServiceArgs"
         DisplayName    = "Xray Reality Service"
         StartupType    = "Automatic"
-        Description    = "Xray Core Proxy Service"
+        Description    = "Xray SOCKS5 Proxy Service"
     }
-
-    try {
-        $existingService = Get-Service $ServiceName -ErrorAction SilentlyContinue
-        if ($existingService) {
-            Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue
-            Start-Sleep 2
-            & sc.exe delete $ServiceName | Out-Null
-        }
-
-        New-Service @serviceParams -ErrorAction Stop | Out-Null
-        sc.exe failure $ServiceName reset= 0 actions= restart/5000 | Out-Null
-
-        Start-Service $ServiceName -ErrorAction Stop
-        Write-Host "✅ Служба успешно запущена" -ForegroundColor Green
+    
+    if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
+        Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue
+        & sc.exe delete $ServiceName | Out-Null
     }
-    catch {
-        throw "Ошибка настройки службы: $_"
-    }
-    #endregion
+    
+    New-Service @ServiceParams | Out-Null
+    sc.exe failure $ServiceName reset= 0 actions= restart/5000 | Out-Null
+    Start-Service $ServiceName
+    Write-Host "✅ Служба успешно запущена" -ForegroundColor Green
+}
 
-    #region Firewall Rule
-    try {
-        $null = New-NetFirewallRule `
-            -Name "XraySocks_$port" `
-            -DisplayName "Xray SOCKS5 ($port)" `
-            -Direction Inbound `
-            -Protocol TCP `
-            -LocalPort $port `
-            -Action Allow `
-            -Enabled True `
-            -Profile Any `
-            -ErrorAction Stop
-        
-        Write-Host "✅ Правило брандмауэра добавлено" -ForegroundColor Green
-    }
-    catch {
-        Write-Host "⚠️ Ошибка брандмауэра: $_" -ForegroundColor Yellow
-    }
-    #endregion
+# Настройка брандмауэра
+function Set-FirewallRule {
+    param ([int]$Port)
+    $RuleName = "XraySocks_$Port"
+    New-NetFirewallRule -Name $RuleName `
+                        -DisplayName "Xray SOCKS5 ($Port)" `
+                        -Direction Inbound `
+                        -Protocol TCP `
+                        -LocalPort $Port `
+                        -Action Allow `
+                        -Enabled True `
+                        -Profile Any `
+                        -ErrorAction SilentlyContinue | Out-Null
+    Write-Host "✅ Правило брандмауэра добавлено" -ForegroundColor Green
+}
 
-    #region Final Output
-    $connectionInfo = @"
-=== Xray SOCKS5 Configuration ===
-Server: $env:COMPUTERNAME
-Port: $port
-Username: $socksUsername
-Password: $socksPassword
-
-Security Tips:
-1. Не передавайте пароль открытым текстом
-2. Используйте TLS поверх SOCKS при необходимости
-3. Регулярно обновляйте пароли
-
-QR Code (для клиентов):
-socks://$socksUsername`:$socksPassword@$env:COMPUTERNAME`:$port
+# Основной процесс
+try {
+    Start-Transcript -Path (Join-Path $env:TEMP "xray_install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log") -Append
+    Write-Host "🚀 Запуск установки Xray + SOCKS5 Proxy" -ForegroundColor Cyan
+    
+    Test-Prerequisites
+    Remove-PreviousInstallation
+    Get-XrayBinary
+    
+    $SocksUsername = Get-UserInput
+    $SocksPassword = -join ((33..126 | Get-Random -Count 16) | ForEach-Object { [char]$_ })
+    Write-Host "🔑 Сгенерирован пароль: $SocksPassword" -ForegroundColor Cyan
+    
+    do {
+        $Port = Get-Random -Minimum 20000 -Maximum 60000
+    } while (Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue)
+    Write-Host "Выбран порт: $Port" -ForegroundColor Cyan
+    
+    New-XrayConfig -Username $SocksUsername -Password $SocksPassword -Port $Port
+    Install-XrayService
+    Set-FirewallRule -Port $Port
+    
+    $ConnectionInfo = @"
+=== Xray SOCKS5 Подключение ===
+Сервер: $env:COMPUTERNAME
+Порт: $Port
+Логин: $SocksUsername
+Пароль: $SocksPassword
 "@
-
-    [System.IO.File]::WriteAllText($KeysFile, $connectionInfo, [System.Text.Encoding]::UTF8)
-    Write-Host @"
-
-==============================================
-✅ Установка завершена!
-• Файл с настройками: $KeysFile
-• Логи службы: $LogFile
-• Управление службой: 
-  - Запуск: Start-Service $ServiceName
-  - Остановка: Stop-Service $ServiceName
-==============================================
-"@ -ForegroundColor Green
-    #endregion
+    [System.IO.File]::WriteAllText($KeysFile, $ConnectionInfo, [System.Text.Encoding]::UTF8)
+    
+    Write-Host "✅ Установка завершена! Настройки сохранены в: $KeysFile" -ForegroundColor Green
 }
 catch {
-    Write-Host "`n❌ КРИТИЧЕСКАЯ ОШИБКА: $_" -ForegroundColor Red
-    Save-DebugLog -ErrorMessage $_ -ConfigPath $ConfigPath -XrayLogPath $LogFile
+    Write-Host "❌ Ошибка: $_" -ForegroundColor Red
+    Write-DebugLog -ErrorMessage $_.Exception.Message
     exit 1
 }
 finally {
-    Stop-Transcript | Out-Null
+    Stop-Transcript -ErrorAction SilentlyContinue
 }
