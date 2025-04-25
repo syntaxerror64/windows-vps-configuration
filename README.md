@@ -10,3 +10,9 @@ irm https://raw.githubusercontent.com/syntaxerror64/windows-vps-configuration/ma
 ```powershell
 irm https://raw.githubusercontent.com/syntaxerror64/windows-vps-configuration/main/xray_install.ps1 | iex
 ```
+
+
+
+```powershell
+irm https://raw.githubusercontent.com/syntaxerror64/windows-vps-configuration/main/openhands_docker_setup.ps1 | iex
+```
